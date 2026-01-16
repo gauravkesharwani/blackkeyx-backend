@@ -357,6 +357,7 @@ def _investor_to_response(lead) -> LeadWithDetailsResponse:
 
     return LeadWithDetailsResponse(
         id=str(lead.id),
+        name=lead.name,
         phone=lead.phone,
         timeline=lead.timeline,
         capitalAvailable=lead.capital_available,

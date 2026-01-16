@@ -42,12 +42,14 @@ class LeadSubmissionRequest(BaseModel):
     Lead submission request from chatbot.
 
     Maps to leadSchema from frontend validation.ts:
+    - name: user's name (required)
     - phoneNumber: validated phone string
     - consent: must be true
     - timestamp: ISO string
     - qualification: optional InvestorQualification
     """
 
+    name: str = Field(..., min_length=1, max_length=255)
     phoneNumber: str = Field(..., min_length=10, alias="phone_number")
     consent: bool = Field(..., description="Must be true for TCPA compliance")
     timestamp: str

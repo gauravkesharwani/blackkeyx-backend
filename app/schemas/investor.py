@@ -163,6 +163,7 @@ class LeadWithDetailsResponse(BaseModel):
     """
 
     id: str
+    name: str
     phone: str
     timeline: Optional[str] = None
     capitalAvailable: Optional[int] = None

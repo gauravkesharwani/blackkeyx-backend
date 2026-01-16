@@ -91,6 +91,7 @@ async def submit_lead(
     investor = InvestorProfile(
         id=uuid.uuid4(),
         phone=lead_data.phoneNumber,
+        name=lead_data.name,
         timeline=lead_data.investmentTimeline,
         capital_available=capital_available,
         investment_preferences=investment_preferences,
