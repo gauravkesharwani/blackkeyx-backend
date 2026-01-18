@@ -4,6 +4,7 @@ Lead submission router.
 Handles POST /api/v1/submit-lead from chatbot.
 """
 
+import re
 import uuid
 from typing import Optional
 
@@ -17,6 +18,43 @@ from app.models.investor import InvestorProfile
 from app.schemas.lead import LeadSubmissionRequest, LeadSubmissionResponse
 
 router = APIRouter()
+
+
+def normalize_phone(phone: str) -> str:
+    """
+    Normalize phone number to E.164 format for LiveKit SIP.
+
+    Examples:
+        '(415) 555-1234' -> '+14155551234'
+        '415-555-1234' -> '+14155551234'
+        '4155551234' -> '+14155551234'
+        '+1 415 555 1234' -> '+14155551234'
+        '+14155551234' -> '+14155551234'
+    """
+    # Strip all non-digit characters except leading +
+    if phone.startswith('+'):
+        digits = '+' + re.sub(r'\D', '', phone[1:])
+    else:
+        digits = re.sub(r'\D', '', phone)
+
+    # If already in E.164 format, return as-is
+    if digits.startswith('+'):
+        return digits
+
+    # US/Canada: 10 digits -> add +1
+    if len(digits) == 10:
+        return f"+1{digits}"
+
+    # US/Canada: 11 digits starting with 1 -> add +
+    if len(digits) == 11 and digits.startswith('1'):
+        return f"+{digits}"
+
+    # Other international: assume needs + prefix
+    if len(digits) > 10:
+        return f"+{digits}"
+
+    # Return with +1 as fallback for US numbers
+    return f"+1{digits}"
 
 
 def parse_capital(capital_str: Optional[str]) -> Optional[int]:
@@ -67,8 +105,11 @@ async def submit_lead(
 
     repo = InvestorRepository(session)
 
+    # Normalize phone to E.164 format for LiveKit SIP
+    normalized_phone = normalize_phone(lead_data.phoneNumber)
+
     # Check if phone already exists
-    existing = await repo.get_by_phone(lead_data.phoneNumber)
+    existing = await repo.get_by_phone(normalized_phone)
     if existing:
         # Return existing lead_id instead of creating duplicate
         return LeadSubmissionResponse(
@@ -90,7 +131,7 @@ async def submit_lead(
     # Create investor profile
     investor = InvestorProfile(
         id=uuid.uuid4(),
-        phone=lead_data.phoneNumber,
+        phone=normalized_phone,
         name=lead_data.name,
         timeline=lead_data.investmentTimeline,
         capital_available=capital_available,

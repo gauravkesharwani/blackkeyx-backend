@@ -1,0 +1,51 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Git
+.git/
+.gitignore
+
+# Environment files (secrets)
+.env
+.env.*
+!.env.example
+
+# Tests
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Linting/typing cache
+.mypy_cache/
+.ruff_cache/
+
+# Documentation
+*.md
+docs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Other
+*.log
+*.tmp

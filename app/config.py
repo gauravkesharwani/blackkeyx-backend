@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
 
+    # LiveKit
+    livekit_url: str = ""
+    livekit_api_key: str = ""
+    livekit_api_secret: str = ""
+    livekit_sip_trunk_id: str = ""
+    livekit_sip_number: str = ""  # Outbound caller ID (E.164 format)
+
     # Admin Authentication
     admin_password: str = "changeme"
 

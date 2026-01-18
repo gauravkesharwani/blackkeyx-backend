@@ -5,16 +5,21 @@ Handles the full lead submission flow:
 1. Create investor profile
 2. Store TCPA consent
 3. Record initial stage
-4. (Future) Dispatch voice call via LiveKit
+4. Dispatch voice call via LiveKit
 """
 
+import logging
 import uuid
 from typing import Optional
 
 from app.db.repositories.investor_repo import InvestorRepository
+from app.db.repositories.call_repo import CallRepository
 from app.models.consent import Consent, StageHistory
 from app.models.investor import InvestorProfile
 from app.schemas.lead import LeadSubmissionRequest
+from app.services.livekit_dispatcher import get_livekit_dispatcher
+
+logger = logging.getLogger(__name__)
 
 
 def parse_capital_to_int(capital_str: Optional[str]) -> Optional[int]:
@@ -46,8 +51,14 @@ def parse_capital_to_int(capital_str: Optional[str]) -> Optional[int]:
 class LeadProcessor:
     """Service for processing incoming leads."""
 
-    def __init__(self, investor_repo: InvestorRepository):
+    def __init__(
+        self,
+        investor_repo: InvestorRepository,
+        call_repo: Optional[CallRepository] = None,
+    ):
         self.investor_repo = investor_repo
+        self.call_repo = call_repo
+        self.livekit = get_livekit_dispatcher()
 
     async def process_lead(
         self,
@@ -119,11 +130,54 @@ class LeadProcessor:
         """
         Dispatch a voice call to the investor via LiveKit.
 
-        TODO: Implement LiveKit integration in Phase 2.
+        Creates a LiveKit room, dispatches the BlackKeyX advisor agent,
+        and initiates an outbound call to the investor's phone number.
 
         Returns:
             Optional[str]: Room name if call dispatched, None otherwise
         """
-        # Placeholder for LiveKit integration
-        # Will be implemented in Phase 2
-        return None
+        # Get investor details
+        investor = await self.investor_repo.get(investor_id)
+        if not investor:
+            logger.error(f"Investor {investor_id} not found for call dispatch")
+            return None
+
+        if not investor.phone:
+            logger.error(f"Investor {investor_id} has no phone number")
+            return None
+
+        # Build investor context for the agent
+        investor_context = {
+            "investor_id": str(investor.id),
+            "name": investor.name or "there",
+            "phone": investor.phone,
+            "capital_available": investor.capital_available,
+            "timeline": investor.timeline,
+            "investor_type": investor.investor_type,
+        }
+
+        try:
+            # Dispatch the call via LiveKit
+            room_name = await self.livekit.dispatch_outbound_call(
+                phone_number=investor.phone,
+                investor_context=investor_context,
+            )
+
+            logger.info(f"Call dispatched for investor {investor_id} in room {room_name}")
+
+            # Create call session record if repo is available
+            if self.call_repo:
+                await self.call_repo.create_call(
+                    investor_id=investor_id,
+                    room_name=room_name,
+                    status="initiated",
+                )
+
+            # Update investor stage
+            await self.investor_repo.update_stage(investor_id, "call_dispatched")
+
+            return room_name
+
+        except Exception as e:
+            logger.error(f"Failed to dispatch call for investor {investor_id}: {e}")
+            return None
