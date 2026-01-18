@@ -12,11 +12,9 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.repositories.call_repo import CallRepository
-from app.db.session import get_db
-from app.services.livekit_dispatcher import get_livekit_dispatcher
+from app.dependencies import get_voice_service
+from app.services.voice_service import VoiceService
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +48,7 @@ class SessionCompleteResponse(BaseModel):
 @router.get("/status/{room_name}", response_model=CallStatusResponse)
 async def get_call_status(
     room_name: str,
-    db: AsyncSession = Depends(get_db),
+    voice_service: VoiceService = Depends(get_voice_service),
 ):
     """
     Get status of a voice call by room name.
@@ -58,8 +56,7 @@ async def get_call_status(
     Returns the current status of the call including duration and
     whether a transcript is available.
     """
-    repo = CallRepository(db)
-    call = await repo.get_by_room_name(room_name)
+    call = await voice_service.get_call_status(room_name)
 
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
@@ -75,7 +72,7 @@ async def get_call_status(
 @router.post("/session-complete", response_model=SessionCompleteResponse)
 async def session_complete(
     request: SessionCompleteRequest,
-    db: AsyncSession = Depends(get_db),
+    voice_service: VoiceService = Depends(get_voice_service),
 ):
     """
     Called by LiveKit agent when session ends.
@@ -84,46 +81,42 @@ async def session_complete(
     """
     logger.info(f"Session complete for room: {request.room_name}")
 
-    repo = CallRepository(db)
-    call = await repo.save_transcript(
+    call = await voice_service.complete_session(
         room_name=request.room_name,
         transcript=request.transcript,
         duration=request.duration,
     )
 
     if not call:
-        logger.warning(f"Call not found for room: {request.room_name}")
         return SessionCompleteResponse(success=False)
 
-    logger.info(f"Transcript saved for call: {call.id}")
     return SessionCompleteResponse(success=True, call_id=str(call.id))
 
 
 @router.get("/room/{room_name}/active")
-async def check_room_active(room_name: str):
+async def check_room_active(
+    room_name: str,
+    voice_service: VoiceService = Depends(get_voice_service),
+):
     """
     Check if a LiveKit room is still active.
 
     Useful for polling call status from the frontend.
     """
-    dispatcher = get_livekit_dispatcher()
-    room_info = await dispatcher.get_room_status(room_name)
-
-    return {
-        "active": room_info is not None,
-        "participants": room_info.get("num_participants", 0) if room_info else 0,
-    }
+    return await voice_service.check_room_active(room_name)
 
 
 @router.post("/room/{room_name}/end")
-async def end_call(room_name: str):
+async def end_call(
+    room_name: str,
+    voice_service: VoiceService = Depends(get_voice_service),
+):
     """
     Force end a call by deleting the room.
 
     Should only be used for administrative purposes.
     """
-    dispatcher = get_livekit_dispatcher()
-    success = await dispatcher.end_call(room_name)
+    success = await voice_service.end_call(room_name)
 
     if not success:
         raise HTTPException(status_code=500, detail="Failed to end call")

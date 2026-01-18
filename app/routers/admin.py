@@ -17,17 +17,10 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-logger = logging.getLogger(__name__)
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.db.repositories.call_repo import CallRepository
-from app.db.repositories.investor_repo import InvestorRepository
-from app.db.repositories.property_repo import PropertyRepository
-from app.db.session import get_db
-from app.services.livekit_dispatcher import get_livekit_dispatcher
+from app.dependencies import get_admin_service
 from app.schemas.admin import (
     ActivityItem,
     AdminStatsResponse,
@@ -45,6 +38,9 @@ from app.schemas.investor import (
     StageChangeResponse,
     StageUpdateRequest,
 )
+from app.services.admin_service import AdminService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 settings = get_settings()
@@ -93,7 +89,7 @@ async def logout(response: Response) -> AuthResponse:
 
 @router.get("/stats", response_model=AdminStatsResponse)
 async def get_stats(
-    session: AsyncSession = Depends(get_db),
+    admin_service: AdminService = Depends(get_admin_service),
 ) -> AdminStatsResponse:
     """
     Get admin dashboard statistics.
@@ -105,17 +101,9 @@ async def get_stats(
     - totalDeals: Total active deals
     - recentActivity: Recent activity items
     """
-    investor_repo = InvestorRepository(session)
-    property_repo = PropertyRepository(session)
+    stats = await admin_service.get_dashboard_stats()
+    recent_leads = await admin_service.get_recent_leads(limit=5)
 
-    # Get stats
-    total_leads = await investor_repo.count()
-    by_stage = await investor_repo.get_stats_by_stage()
-    average_score = await investor_repo.get_average_score()
-    total_deals = await property_repo.count()
-
-    # Get recent leads for activity (mock activity for now)
-    recent_leads, _ = await investor_repo.search_leads(limit=5)
     recent_activity = [
         ActivityItem(
             id=str(lead.id),
@@ -127,17 +115,17 @@ async def get_stats(
     ]
 
     return AdminStatsResponse(
-        totalLeads=total_leads,
-        byStage=by_stage,
-        averageScore=round(average_score, 1),
-        totalDeals=total_deals,
+        totalLeads=stats["total_leads"],
+        byStage=stats["by_stage"],
+        averageScore=round(stats["average_score"], 1),
+        totalDeals=stats["total_deals"],
         recentActivity=recent_activity,
     )
 
 
 @router.get("/leads", response_model=LeadListResponse)
 async def list_leads(
-    session: AsyncSession = Depends(get_db),
+    admin_service: AdminService = Depends(get_admin_service),
     stage: Optional[str] = Query(None),
     score_min: Optional[int] = Query(None, alias="scoreMin"),
     score_max: Optional[int] = Query(None, alias="scoreMax"),
@@ -165,8 +153,6 @@ async def list_leads(
     - page: Page number (1-indexed)
     - pageSize: Items per page (max 100)
     """
-    repo = InvestorRepository(session)
-
     # Parse dates
     date_from_dt = None
     date_to_dt = None
@@ -185,7 +171,7 @@ async def list_leads(
     skip = (page - 1) * page_size
 
     # Search
-    leads, total = await repo.search_leads(
+    leads, total = await admin_service.search_leads(
         stage=stage,
         score_min=score_min,
         score_max=score_max,
@@ -201,10 +187,7 @@ async def list_leads(
     )
 
     # Convert to response format
-    lead_responses = []
-    for lead in leads:
-        lead_response = _investor_to_response(lead)
-        lead_responses.append(lead_response)
+    lead_responses = [_investor_to_response(lead) for lead in leads]
 
     total_pages = math.ceil(total / page_size) if total > 0 else 1
 
@@ -220,12 +203,10 @@ async def list_leads(
 @router.get("/leads/{lead_id}", response_model=LeadWithDetailsResponse)
 async def get_lead(
     lead_id: uuid.UUID,
-    session: AsyncSession = Depends(get_db),
+    admin_service: AdminService = Depends(get_admin_service),
 ) -> LeadWithDetailsResponse:
     """Get single lead with full details."""
-    repo = InvestorRepository(session)
-
-    lead = await repo.get_with_relations(lead_id)
+    lead = await admin_service.get_lead(lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
@@ -236,7 +217,7 @@ async def get_lead(
 async def update_lead_stage(
     lead_id: uuid.UUID,
     stage_data: StageUpdateRequest,
-    session: AsyncSession = Depends(get_db),
+    admin_service: AdminService = Depends(get_admin_service),
 ) -> LeadWithDetailsResponse:
     """
     Update lead pipeline stage.
@@ -253,62 +234,22 @@ async def update_lead_stage(
             detail=f"Invalid stage. Must be one of: {VALID_STAGES}",
         )
 
-    repo = InvestorRepository(session)
+    try:
+        lead = await admin_service.update_lead_stage(
+            lead_id=lead_id,
+            new_stage=stage_data.stage,
+            notes=stage_data.notes,
+        )
+    except Exception as e:
+        logger.error(f"Failed to update stage or dispatch call: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Stage update failed: {str(e)}",
+        )
 
-    # Get lead first to check it exists and get phone number for dispatch
-    lead = await repo.get_with_relations(lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    # Update stage
-    lead = await repo.update_stage(
-        investor_id=lead_id,
-        new_stage=stage_data.stage,
-        changed_by="admin",
-        notes=stage_data.notes,
-    )
-
-    # Auto-dispatch outbound call when stage changes to call_dispatched
-    if stage_data.stage == "call_dispatched":
-        try:
-            dispatcher = get_livekit_dispatcher()
-            call_repo = CallRepository(session)
-
-            # Build investor context for the agent
-            investor_context = {
-                "investor_id": str(lead_id),
-                "name": lead.name or "there",
-                "capital_available": lead.capacity or lead.capital_available,
-                "timeline": lead.timeline,
-                "investment_preferences": lead.investment_preferences or [],
-            }
-
-            # Dispatch the call
-            room_name = await dispatcher.dispatch_outbound_call(
-                phone_number=lead.phone,
-                investor_context=investor_context,
-            )
-
-            # Create call record
-            await call_repo.create_call(
-                investor_id=lead_id,
-                room_name=room_name,
-                status="initiated",
-            )
-
-            await session.commit()
-
-        except Exception as e:
-            # Log error and return failure
-            logger.error(f"Failed to dispatch call: {e}")
-            # Optionally revert stage or add note about failure
-            raise HTTPException(
-                status_code=500,
-                detail=f"Stage updated but call dispatch failed: {str(e)}",
-            )
-
-    # Reload with relations
-    lead = await repo.get_with_relations(lead_id)
     return _investor_to_response(lead)
 
 
@@ -316,15 +257,12 @@ async def update_lead_stage(
 async def add_lead_note(
     lead_id: uuid.UUID,
     note_data: AddNoteRequest,
-    session: AsyncSession = Depends(get_db),
+    admin_service: AdminService = Depends(get_admin_service),
 ) -> LeadNoteResponse:
     """Add a note to a lead."""
-    repo = InvestorRepository(session)
-
-    note = await repo.add_note(
-        investor_id=lead_id,
+    note = await admin_service.add_lead_note(
+        lead_id=lead_id,
         content=note_data.content,
-        created_by="admin",
     )
 
     if not note:
