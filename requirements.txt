@@ -1,0 +1,30 @@
+# Runtime dependencies - extracted from pyproject.toml
+# Install: pip install -r requirements.txt
+
+# FastAPI & Web
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-multipart
+
+# SQLAlchemy & Database
+sqlalchemy[asyncio]
+asyncpg
+alembic
+pgvector
+
+# AWS
+boto3
+aioboto3
+
+# OpenAI
+openai
+
+# LiveKit
+livekit-api
+
+# HTTP & Utilities
+httpx
+tenacity
+python-jose[cryptography]
