@@ -8,7 +8,7 @@ Provides endpoints for:
 """
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -35,7 +35,8 @@ class SessionCompleteRequest(BaseModel):
 
     room_name: str
     transcript: str
-    duration: int
+    duration: Optional[int] = None
+    history: Optional[list[dict[str, Any]]] = None
 
 
 class SessionCompleteResponse(BaseModel):
@@ -85,6 +86,7 @@ async def session_complete(
         room_name=request.room_name,
         transcript=request.transcript,
         duration=request.duration,
+        history=request.history,
     )
 
     if not call:

@@ -1,7 +1,7 @@
 """Voice service for call management operations."""
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,27 @@ from app.models.voice import CallSession
 from app.services.livekit_dispatcher import get_livekit_dispatcher
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_duration_from_history(history: list[dict[str, Any]]) -> Optional[int]:
+    """Compute call duration in seconds from history timestamps."""
+    timestamps: list[float] = []
+
+    for item in history:
+        if item.get("type") != "message":
+            continue
+        metrics = item.get("metrics", {})
+        started = metrics.get("started_speaking_at")
+        stopped = metrics.get("stopped_speaking_at")
+
+        if started is not None:
+            timestamps.append(started)
+        if stopped is not None:
+            timestamps.append(stopped)
+
+    if len(timestamps) >= 2:
+        return int(max(timestamps) - min(timestamps))
+    return None
 
 
 class VoiceService:
@@ -26,23 +47,32 @@ class VoiceService:
         self,
         room_name: str,
         transcript: str,
-        duration: int,
+        duration: Optional[int] = None,
+        history: Optional[list[dict[str, Any]]] = None,
     ) -> Optional[CallSession]:
         """
         Complete a call session - save transcript and update investor stage.
 
         Returns the updated CallSession or None if not found.
         """
+        # Compute duration from history if not provided
+        if duration is None and history:
+            duration = _compute_duration_from_history(history)
+
         # Save transcript and mark call completed
         call = await self.call_repo.save_transcript(
             room_name=room_name,
             transcript=transcript,
-            duration=duration,
+            duration=duration or 0,
         )
 
         if not call:
             logger.warning(f"Call not found for room: {room_name}")
             return None
+
+        # Save detailed transcript segments from history
+        if history:
+            await self._save_transcript_segments(call.id, history)
 
         # Update investor stage to "call_completed"
         await self.investor_repo.update_stage(
@@ -55,6 +85,41 @@ class VoiceService:
         await self.session.commit()
         logger.info(f"Session completed for call: {call.id}")
         return call
+
+    async def _save_transcript_segments(
+        self,
+        call_id: Any,
+        history: list[dict[str, Any]],
+    ) -> None:
+        """Parse history items and save as transcript segments."""
+        for item in history:
+            if item.get("type") != "message":
+                continue
+
+            role = item.get("role", "")
+            content_list = item.get("content", [])
+            content = " ".join(c for c in content_list if isinstance(c, str))
+
+            if not content:
+                continue
+
+            # Map role to speaker
+            speaker = "agent" if role == "assistant" else "investor"
+
+            # Extract metrics
+            metrics = item.get("metrics", {})
+            start_time = metrics.get("started_speaking_at")
+            end_time = metrics.get("stopped_speaking_at")
+            confidence = item.get("transcript_confidence")
+
+            await self.call_repo.add_transcript_segment(
+                call_session_id=call_id,
+                speaker=speaker,
+                content=content,
+                start_time=start_time,
+                end_time=end_time,
+                confidence=confidence,
+            )
 
     async def get_call_status(self, room_name: str) -> Optional[CallSession]:
         """Get call status by room name."""
