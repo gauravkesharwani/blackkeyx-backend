@@ -49,9 +49,13 @@ class VoiceService:
         transcript: str,
         duration: Optional[int] = None,
         history: Optional[list[dict[str, Any]]] = None,
+        callback_requested: bool = False,
+        callback_datetime: Optional[str] = None,
+        callback_notes: Optional[str] = None,
     ) -> Optional[CallSession]:
         """
         Complete a call session - save transcript and update investor stage.
+        Handles callback requests if the user requested to be called back later.
 
         Returns the updated CallSession or None if not found.
         """
@@ -74,13 +78,44 @@ class VoiceService:
         if history:
             await self._save_transcript_segments(call.id, history)
 
-        # Update investor stage to "call_completed"
-        await self.investor_repo.update_stage(
-            investor_id=call.investor_id,
-            new_stage="call_completed",
-            changed_by="system",
-            notes="Call completed automatically",
-        )
+        # Handle callback request
+        if callback_requested and callback_datetime:
+            # Parse the datetime using dateparser
+            parsed_dt = None
+            try:
+                import dateparser
+
+                parsed_dt = dateparser.parse(
+                    callback_datetime, settings={"PREFER_DATES_FROM": "future"}
+                )
+            except Exception as e:
+                logger.warning(f"Could not parse callback datetime: {e}")
+
+            # Create callback request record
+            await self.call_repo.create_callback_request(
+                investor_id=call.investor_id,
+                call_session_id=call.id,
+                requested_datetime_raw=callback_datetime,
+                requested_datetime=parsed_dt,
+                notes=callback_notes,
+            )
+
+            # Update investor stage to callback_requested
+            await self.investor_repo.update_stage(
+                investor_id=call.investor_id,
+                new_stage="callback_requested",
+                changed_by="system",
+                notes=f"Callback requested for: {callback_datetime}",
+            )
+            logger.info(f"Callback request created for investor: {call.investor_id}")
+        else:
+            # Normal call completion
+            await self.investor_repo.update_stage(
+                investor_id=call.investor_id,
+                new_stage="call_completed",
+                changed_by="system",
+                notes="Call completed automatically",
+            )
 
         await self.session.commit()
         logger.info(f"Session completed for call: {call.id}")

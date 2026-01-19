@@ -34,7 +34,7 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 if TYPE_CHECKING:
     from app.models.consent import Consent, LeadNote, StageHistory
     from app.models.matching import DealMatch
-    from app.models.voice import CallSession
+    from app.models.voice import CallbackRequest, CallSession
 
 
 class InvestorProfile(Base, UUIDMixin, TimestampMixin):
@@ -107,4 +107,10 @@ class InvestorProfile(Base, UUIDMixin, TimestampMixin):
         back_populates="investor",
         cascade="all, delete-orphan",
         lazy="selectin",
+    )
+    callback_requests: Mapped[List["CallbackRequest"]] = relationship(
+        back_populates="investor",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="CallbackRequest.created_at.desc()",
     )

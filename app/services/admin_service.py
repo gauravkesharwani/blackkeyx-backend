@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Sequence, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,6 +91,8 @@ class AdminService:
         if not lead:
             return None
 
+        old_stage = lead.stage
+
         # Update stage
         await self.investor_repo.update_stage(
             investor_id=lead_id,
@@ -109,6 +111,10 @@ class AdminService:
                 "investment_preferences": lead.investment_preferences or [],
             }
 
+            # Add flag if this is a callback follow-up
+            if old_stage == "callback_requested":
+                investor_context["is_callback"] = True
+
             room_name = await self.livekit.dispatch_outbound_call(
                 phone_number=lead.phone,
                 investor_context=investor_context,
@@ -119,6 +125,14 @@ class AdminService:
                 room_name=room_name,
                 status="initiated",
             )
+
+            # Mark any pending callbacks as completed
+            if old_stage == "callback_requested":
+                pending_callbacks = await self.call_repo.get_pending_callbacks(lead_id)
+                for cb in pending_callbacks:
+                    await self.call_repo.update_callback_status(
+                        cb.id, "completed", datetime.now(timezone.utc)
+                    )
 
         await self.session.commit()
         return await self.investor_repo.get_with_relations(lead_id)

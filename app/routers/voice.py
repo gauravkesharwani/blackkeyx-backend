@@ -37,6 +37,10 @@ class SessionCompleteRequest(BaseModel):
     transcript: str
     duration: Optional[int] = None
     history: Optional[list[dict[str, Any]]] = None
+    # Callback request fields
+    callback_requested: bool = False
+    callback_datetime: Optional[str] = None
+    callback_notes: Optional[str] = None
 
 
 class SessionCompleteResponse(BaseModel):
@@ -79,14 +83,21 @@ async def session_complete(
     Called by LiveKit agent when session ends.
 
     Saves the transcript and marks the call as completed.
+    Handles callback requests if the user requested to be called back later.
     """
     logger.info(f"Session complete for room: {request.room_name}")
+
+    if request.callback_requested:
+        logger.info(f"Callback requested for: {request.callback_datetime}")
 
     call = await voice_service.complete_session(
         room_name=request.room_name,
         transcript=request.transcript,
         duration=request.duration,
         history=request.history,
+        callback_requested=request.callback_requested,
+        callback_datetime=request.callback_datetime,
+        callback_notes=request.callback_notes,
     )
 
     if not call:

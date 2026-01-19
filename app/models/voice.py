@@ -76,6 +76,57 @@ class CallSession(Base, UUIDMixin):
     investor: Mapped["InvestorProfile"] = relationship(back_populates="calls")
 
 
+class CallbackRequest(Base, UUIDMixin):
+    """
+    Callback request record when investor is busy and wants a follow-up call.
+    Linked to the call session that generated it and the investor.
+    """
+
+    __tablename__ = "callback_requests"
+
+    investor_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("investor_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    call_session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("call_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # Callback scheduling
+    requested_datetime_raw: Mapped[str] = mapped_column(
+        String(255), nullable=False
+    )  # Original natural language (e.g., "Tuesday at 2pm")
+
+    requested_datetime: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )  # Parsed datetime (may be null if unparseable)
+
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Status: pending, completed, cancelled
+    status: Mapped[str] = mapped_column(
+        String(50), default="pending", nullable=False
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Relationships
+    investor: Mapped["InvestorProfile"] = relationship(back_populates="callback_requests")
+    call_session: Mapped["CallSession"] = relationship()
+
+
 class CallTranscript(Base, UUIDMixin):
     """
     Detailed transcript storage for call sessions.

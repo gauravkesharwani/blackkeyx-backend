@@ -136,6 +136,35 @@ class StageChangeResponse(BaseModel):
         return dt.isoformat()
 
 
+class CallbackRequestResponse(BaseModel):
+    """
+    Callback request response.
+
+    Maps to CallbackRequest from frontend:
+    interface CallbackRequest {
+      id: string
+      requestedDatetimeRaw: string
+      requestedDatetime?: string
+      notes?: string
+      status: 'pending' | 'completed' | 'cancelled'
+      createdAt: string
+      completedAt?: string
+    }
+    """
+
+    id: str
+    requestedDatetimeRaw: str
+    requestedDatetime: Optional[datetime] = None
+    notes: Optional[str] = None
+    status: str
+    createdAt: datetime
+    completedAt: Optional[datetime] = None
+
+    @field_serializer("createdAt", "completedAt", "requestedDatetime")
+    def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+        return dt.isoformat() if dt else None
+
+
 class LeadWithDetailsResponse(BaseModel):
     """
     Full lead details response.
@@ -179,6 +208,7 @@ class LeadWithDetailsResponse(BaseModel):
     matches: List[DealMatchResponse] = Field(default_factory=list)
     notes: List[LeadNoteResponse] = Field(default_factory=list)
     stageHistory: List[StageChangeResponse] = Field(default_factory=list)
+    callbackRequests: List["CallbackRequestResponse"] = Field(default_factory=list)
     qualification: Optional[InvestorQualificationResponse] = None
 
     @field_serializer("createdAt", "updatedAt")

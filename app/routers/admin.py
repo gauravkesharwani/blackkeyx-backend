@@ -29,6 +29,7 @@ from app.schemas.admin import (
 )
 from app.schemas.investor import (
     AddNoteRequest,
+    CallbackRequestResponse,
     CallRecordResponse,
     DealMatchResponse,
     InvestorQualificationResponse,
@@ -50,6 +51,7 @@ VALID_STAGES = [
     "new_lead",
     "call_dispatched",
     "call_completed",
+    "callback_requested",
     "insights_extracted",
     "deals_matched",
     "under_review",
@@ -343,6 +345,20 @@ def _investor_to_response(lead) -> LeadWithDetailsResponse:
         for change in (lead.stage_history or [])
     ]
 
+    # Convert callback requests
+    callback_requests = [
+        CallbackRequestResponse(
+            id=str(cb.id),
+            requestedDatetimeRaw=cb.requested_datetime_raw,
+            requestedDatetime=cb.requested_datetime,
+            notes=cb.notes,
+            status=cb.status,
+            createdAt=cb.created_at,
+            completedAt=cb.completed_at,
+        )
+        for cb in (lead.callback_requests or [])
+    ]
+
     return LeadWithDetailsResponse(
         id=str(lead.id),
         name=lead.name,
@@ -361,5 +377,6 @@ def _investor_to_response(lead) -> LeadWithDetailsResponse:
         matches=matches,
         notes=notes,
         stageHistory=stage_history,
+        callbackRequests=callback_requests,
         qualification=qualification,
     )

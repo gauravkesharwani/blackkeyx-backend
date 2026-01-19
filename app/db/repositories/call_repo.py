@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repositories.base import BaseRepository
-from app.models.voice import CallSession, CallTranscript
+from app.models.voice import CallbackRequest, CallSession, CallTranscript
 
 
 class CallRepository(BaseRepository[CallSession]):
@@ -133,3 +133,54 @@ class CallRepository(BaseRepository[CallSession]):
             .order_by(CallTranscript.start_time)
         )
         return result.scalars().all()
+
+    async def create_callback_request(
+        self,
+        investor_id: uuid.UUID,
+        call_session_id: uuid.UUID,
+        requested_datetime_raw: str,
+        requested_datetime: Optional[datetime] = None,
+        notes: Optional[str] = None,
+    ) -> CallbackRequest:
+        """Create a callback request record."""
+        callback = CallbackRequest(
+            id=uuid.uuid4(),
+            investor_id=investor_id,
+            call_session_id=call_session_id,
+            requested_datetime_raw=requested_datetime_raw,
+            requested_datetime=requested_datetime,
+            notes=notes,
+            status="pending",
+        )
+        self.session.add(callback)
+        await self.session.flush()
+        await self.session.refresh(callback)
+        return callback
+
+    async def get_pending_callbacks(
+        self, investor_id: Optional[uuid.UUID] = None
+    ) -> Sequence[CallbackRequest]:
+        """Get pending callback requests, optionally filtered by investor."""
+        query = select(CallbackRequest).where(CallbackRequest.status == "pending")
+        if investor_id:
+            query = query.where(CallbackRequest.investor_id == investor_id)
+        query = query.order_by(CallbackRequest.requested_datetime.asc())
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
+    async def update_callback_status(
+        self,
+        callback_id: uuid.UUID,
+        status: str,
+        completed_at: Optional[datetime] = None,
+    ) -> Optional[CallbackRequest]:
+        """Update callback request status."""
+        await self.session.execute(
+            update(CallbackRequest)
+            .where(CallbackRequest.id == callback_id)
+            .values(status=status, completed_at=completed_at)
+        )
+        result = await self.session.execute(
+            select(CallbackRequest).where(CallbackRequest.id == callback_id)
+        )
+        return result.scalar_one_or_none()
