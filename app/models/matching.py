@@ -14,10 +14,10 @@ interface DealMatch {
 """
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, func
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, func
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDMixin
@@ -76,6 +76,38 @@ class DealMatch(Base, UUIDMixin):
         server_default=func.now(),
         nullable=False,
     )
+
+    # === NEW: Multi-layer scoring fields ===
+
+    # Layer 1: Hard filters (pass/fail)
+    hard_filter_passed: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+
+    # Layer 2: Soft scoring (0-100)
+    soft_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
+
+    # Layer 3: Semantic similarity (0-100)
+    semantic_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
+
+    # Final combined score: soft_score * 0.7 + semantic_score * 0.3
+    final_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
+
+    # Concerns identified during matching
+    concerns: Mapped[List[str]] = mapped_column(
+        ARRAY(String), default=list, server_default="{}"
+    )
+
+    # Detailed score breakdown by category
+    score_breakdown: Mapped[Optional[dict]] = mapped_column(
+        JSONB, default=dict, server_default="{}"
+    )
+
+    # Presentation tracking
+    presented_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Investor response details
+    investor_response: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     # Relationships
     investor: Mapped["InvestorProfile"] = relationship(back_populates="matches")
