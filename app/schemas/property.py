@@ -339,3 +339,54 @@ class FullExtractionResponseWrapper(BaseModel):
 
     class Config:
         populate_by_name = True
+
+
+class FullDealResponse(BaseModel):
+    """
+    Full deal response with all related data.
+
+    Used for viewing saved deal details including all financial,
+    tenant, projection, and market data.
+    """
+
+    # Core deal information (from DealMemoResponse)
+    id: str
+    name: str
+    dealType: str = Field(..., alias="deal_type")
+    summary: Optional[str] = None
+    thesis: Optional[str] = None
+    minimumInvestment: Optional[int] = Field(None, alias="minimum_investment")
+    targetReturn: Optional[str] = Field(None, alias="target_return")
+    riskFactors: List[str] = Field(default_factory=list, alias="risk_factors")
+    idealInvestorProfile: Optional[str] = Field(None, alias="ideal_investor_profile")
+    structure: Optional[str] = None
+    timeline: Optional[str] = None
+    status: str
+    createdAt: datetime = Field(..., alias="created_at")
+    updatedAt: datetime = Field(..., alias="updated_at")
+
+    # Extended fields from Property model
+    valueAddStrategy: Optional[str] = Field(None, alias="value_add_strategy")
+    totalCapitalization: Optional[float] = Field(None, alias="total_capitalization")
+    sponsorName: Optional[str] = Field(None, alias="sponsor_name")
+    sponsorTrackRecord: Optional[str] = Field(None, alias="sponsor_track_record")
+    extractionConfidence: Optional[float] = Field(None, alias="extraction_confidence")
+    extractionNotes: Optional[str] = Field(None, alias="extraction_notes")
+
+    # Property details (from Property and PropertyFeature)
+    propertyDetails: Optional[PropertyDetailsResponse] = Field(None, alias="property_details")
+
+    # Nested related data
+    investmentMetrics: Optional[InvestmentMetricsResponse] = Field(None, alias="investment_metrics")
+    financing: Optional[FinancingResponse] = None
+    majorTenants: List[TenantResponse] = Field(default_factory=list, alias="major_tenants")
+    marketAnalysis: Optional[MarketAnalysisResponse] = Field(None, alias="market_analysis")
+    annualProjections: List[AnnualProjectionResponse] = Field(default_factory=list, alias="annual_projections")
+
+    @field_serializer("createdAt", "updatedAt")
+    def serialize_datetime(self, dt: datetime) -> str:
+        return dt.isoformat()
+
+    class Config:
+        populate_by_name = True
+        from_attributes = True

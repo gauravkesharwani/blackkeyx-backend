@@ -28,6 +28,7 @@ from app.schemas.property import (
     DealUpdateRequest,
     DealUploadResponse,
     FinancingResponse,
+    FullDealResponse,
     FullExtractionResponse,
     FullExtractionResponseWrapper,
     InvestmentMetricsResponse,
@@ -82,6 +83,29 @@ async def get_deal(
     if not deal:
         raise HTTPException(status_code=404, detail="Deal not found")
     return _property_to_response(deal)
+
+
+@router.get("/{deal_id}/full", response_model=FullDealResponse, response_model_by_alias=False)
+async def get_deal_full(
+    deal_id: uuid.UUID,
+    property_service: PropertyService = Depends(get_property_service),
+) -> FullDealResponse:
+    """
+    Get single deal by ID with all related data.
+
+    Returns complete deal data including:
+    - Basic deal info
+    - Investment metrics
+    - Financing details
+    - Major tenants
+    - Annual projections
+    - Market analysis
+    - Property details
+    """
+    deal = await property_service.get_deal(deal_id)
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+    return _property_to_full_response(deal)
 
 
 @router.put("/{deal_id}", response_model=DealMemoResponse, response_model_by_alias=False)
@@ -399,4 +423,128 @@ def _property_to_response(deal: Property) -> DealMemoResponse:
         status=deal.status,
         createdAt=deal.created_at,
         updatedAt=deal.updated_at,
+    )
+
+
+def _property_to_full_response(deal: Property) -> FullDealResponse:
+    """Convert Property model to full response schema with all related data."""
+    # Build property details from Property and PropertyFeature
+    property_details = None
+    if deal.address or deal.city or deal.state or deal.zip_code or deal.square_feet:
+        year_built = None
+        year_renovated = None
+        parking_spaces = None
+        if deal.features:
+            year_built = deal.features.year_built
+            year_renovated = deal.features.year_renovated
+            parking_spaces = deal.features.parking_spaces
+        property_details = PropertyDetailsResponse(
+            address=deal.address,
+            city=deal.city,
+            state=deal.state,
+            zipCode=deal.zip_code,
+            totalSquareFeet=deal.square_feet,
+            yearBuilt=year_built,
+            yearRenovated=year_renovated,
+            parkingSpaces=parking_spaces,
+        )
+
+    # Build investment metrics
+    investment_metrics = None
+    if deal.investment_metrics:
+        m = deal.investment_metrics
+        investment_metrics = InvestmentMetricsResponse(
+            targetIrrMin=m.target_irr_min,
+            targetIrrMax=m.target_irr_max,
+            targetEquityMultiple=m.target_equity_multiple,
+            targetCashOnCash=m.target_cash_on_cash,
+            capRateGoingIn=m.cap_rate_going_in,
+            capRateExit=m.cap_rate_exit,
+            preferredReturn=m.preferred_return,
+        )
+
+    # Build financing
+    financing = None
+    if deal.financing:
+        f = deal.financing
+        financing = FinancingResponse(
+            loanAmount=f.loan_amount,
+            ltvRatio=f.ltv_ratio,
+            interestRate=f.interest_rate,
+            loanTermYears=f.loan_term_years,
+            amortizationYears=f.amortization_years,
+            lenderName=f.lender_name,
+            loanType=f.loan_type,
+        )
+
+    # Build tenants list
+    major_tenants = []
+    if deal.tenants:
+        major_tenants = [
+            TenantResponse(
+                tenantName=t.tenant_name,
+                squareFeet=t.square_feet,
+                annualRent=t.annual_rent,
+                leaseExpiration=t.lease_expiration,
+                tenantType=t.tenant_type,
+            )
+            for t in deal.tenants
+        ]
+
+    # Build market analysis
+    market_analysis = None
+    if deal.market_analysis:
+        ma = deal.market_analysis
+        market_analysis = MarketAnalysisResponse(
+            marketName=ma.market_name,
+            submarket=ma.submarket,
+            populationGrowth=ma.population_growth,
+            employmentDrivers=ma.employment_drivers or [],
+            marketVacancyRate=ma.market_vacancy_rate,
+            marketRentGrowth=ma.market_rent_growth,
+            comparableSales=ma.comparable_sales,
+        )
+
+    # Build annual projections
+    annual_projections = []
+    if deal.annual_projections:
+        annual_projections = [
+            AnnualProjectionResponse(
+                year=p.year,
+                grossRevenue=p.gross_revenue,
+                effectiveGrossIncome=p.effective_gross_income,
+                operatingExpenses=p.operating_expenses,
+                noi=p.noi,
+                cashFlow=p.cash_flow,
+            )
+            for p in deal.annual_projections
+        ]
+
+    return FullDealResponse(
+        id=str(deal.id),
+        name=deal.name,
+        dealType=deal.deal_type,
+        summary=deal.summary,
+        thesis=deal.thesis,
+        minimumInvestment=deal.minimum_investment,
+        targetReturn=deal.target_return,
+        riskFactors=deal.risk_factors or [],
+        idealInvestorProfile=deal.ideal_investor_profile,
+        structure=deal.structure,
+        timeline=deal.timeline,
+        status=deal.status,
+        createdAt=deal.created_at,
+        updatedAt=deal.updated_at,
+        valueAddStrategy=deal.value_add_strategy,
+        totalCapitalization=float(deal.total_capitalization) if deal.total_capitalization else None,
+        sponsorName=deal.sponsor_name,
+        sponsorTrackRecord=deal.sponsor_track_record,
+        extractionConfidence=float(deal.extraction_confidence) if deal.extraction_confidence else None,
+        extractionNotes=deal.extraction_notes,
+        propertyDetails=property_details,
+        investmentMetrics=investment_metrics,
+        financing=financing,
+        majorTenants=major_tenants,
+        marketAnalysis=market_analysis,
+        annualProjections=annual_projections,
     )
