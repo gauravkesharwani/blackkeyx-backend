@@ -51,7 +51,7 @@ class Property(Base, UUIDMixin, TimestampMixin):
 
     # Investment terms
     minimum_investment: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    target_return: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    target_return: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     risk_factors: Mapped[List[str]] = mapped_column(
         ARRAY(String), default=list, server_default="{}"
     )
