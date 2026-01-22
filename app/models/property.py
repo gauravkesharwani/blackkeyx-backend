@@ -29,6 +29,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from app.models.embeddings import PropertyEmbedding
+    from app.models.financial import AnnualProjection, Financing, InvestmentMetrics, Tenant
+    from app.models.market import MarketAnalysis
     from app.models.matching import DealMatch
 
 
@@ -53,8 +56,8 @@ class Property(Base, UUIDMixin, TimestampMixin):
         ARRAY(String), default=list, server_default="{}"
     )
     ideal_investor_profile: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    structure: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    timeline: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    structure: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    timeline: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     # Status: 'active' | 'closed' | 'paused'
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
@@ -74,7 +77,28 @@ class Property(Base, UUIDMixin, TimestampMixin):
     document_s3_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     document_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    # Relationships
+    # === NEW FIELDS FROM INVESTOR BRIEF EXTRACTION ===
+
+    # Strategy and thesis
+    value_add_strategy: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Capitalization
+    total_capitalization: Mapped[Optional[float]] = mapped_column(
+        Numeric(15, 2), nullable=True
+    )
+
+    # Sponsor information
+    sponsor_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    sponsor_track_record: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Extraction metadata
+    extraction_confidence: Mapped[Optional[float]] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
+    extraction_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # === RELATIONSHIPS ===
+
     features: Mapped[Optional["PropertyFeature"]] = relationship(
         back_populates="property",
         uselist=False,
@@ -85,6 +109,46 @@ class Property(Base, UUIDMixin, TimestampMixin):
         back_populates="matched_property",
         cascade="all, delete-orphan",
         lazy="selectin",
+    )
+
+    # NEW: Financial relationships
+    investment_metrics: Mapped[Optional["InvestmentMetrics"]] = relationship(
+        back_populates="property",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    financing: Mapped[Optional["Financing"]] = relationship(
+        back_populates="property",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    tenants: Mapped[List["Tenant"]] = relationship(
+        back_populates="property",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    annual_projections: Mapped[List["AnnualProjection"]] = relationship(
+        back_populates="property",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="AnnualProjection.year",
+    )
+
+    # NEW: Market analysis
+    market_analysis: Mapped[Optional["MarketAnalysis"]] = relationship(
+        back_populates="property",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    # NEW: Embeddings for semantic search
+    embeddings: Mapped[List["PropertyEmbedding"]] = relationship(
+        back_populates="property",
+        cascade="all, delete-orphan",
+        lazy="noload",  # Don't load by default (expensive)
     )
 
 

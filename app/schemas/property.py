@@ -112,12 +112,9 @@ class DealUploadResponse(BaseModel):
     }
     """
 
-    uploadId: str = Field(..., alias="upload_id")
+    uploadId: str
     filename: str
     status: str
-
-    class Config:
-        populate_by_name = True
 
 
 class DealExtractionResponse(BaseModel):
