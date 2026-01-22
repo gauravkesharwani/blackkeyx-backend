@@ -185,6 +185,36 @@ class PropertyService:
 
         return await self.property_repo.update(deal)
 
+    async def delete_deal(self, deal_id: uuid.UUID) -> bool:
+        """
+        Delete a deal by ID, including its S3 document.
+
+        Returns True if deleted, False if not found.
+        """
+        # First, get the deal to retrieve the S3 key
+        deal = await self.property_repo.get(deal_id)
+        if not deal:
+            return False
+
+        s3_key = deal.document_s3_key
+
+        # Delete from database (cascades to all related tables)
+        deleted = await self.property_repo.delete(deal_id)
+
+        # Delete document from S3 if it exists
+        if deleted and s3_key:
+            try:
+                self.s3_client.delete_object(
+                    Bucket=settings.aws_s3_bucket,
+                    Key=s3_key,
+                )
+                logger.info(f"Deleted S3 document: {s3_key}")
+            except ClientError as e:
+                # Log but don't fail - the DB record is already deleted
+                logger.warning(f"Failed to delete S3 document {s3_key}: {e}")
+
+        return deleted
+
     def validate_file(self, content_type: str, size: int) -> Optional[str]:
         """Validate file type and size. Returns error message or None."""
         if content_type not in self.ALLOWED_CONTENT_TYPES:

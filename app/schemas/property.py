@@ -117,6 +117,23 @@ class DealUploadResponse(BaseModel):
     status: str
 
 
+class DealDocumentDownloadResponse(BaseModel):
+    """
+    Document download response with presigned URL.
+
+    Maps to DealDocumentDownloadResponse from frontend:
+    interface DealDocumentDownloadResponse {
+      downloadUrl: string
+      filename: string
+      expiresIn: number
+    }
+    """
+
+    downloadUrl: str
+    filename: str
+    expiresIn: int = Field(description="URL expiration time in seconds")
+
+
 class DealExtractionResponse(BaseModel):
     """
     Extraction response.

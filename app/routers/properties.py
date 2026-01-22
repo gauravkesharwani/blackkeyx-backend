@@ -6,6 +6,7 @@ Handles:
 - POST /api/v1/properties - Create deal
 - GET /api/v1/properties/{id} - Get deal
 - PUT /api/v1/properties/{id} - Update deal
+- DELETE /api/v1/properties/{id} - Delete deal
 - POST /api/v1/properties/upload - Upload document to S3
 - POST /api/v1/properties/extract - Extract data from document
 """
@@ -21,6 +22,7 @@ from app.models.property import Property
 from app.schemas.property import (
     AnnualProjectionResponse,
     DealCreateRequest,
+    DealDocumentDownloadResponse,
     DealExtractionResponse,
     DealListResponse,
     DealMemoExtraction,
@@ -108,6 +110,41 @@ async def get_deal_full(
     return _property_to_full_response(deal)
 
 
+@router.get("/{deal_id}/document", response_model=DealDocumentDownloadResponse)
+async def get_deal_document(
+    deal_id: uuid.UUID,
+    property_service: PropertyService = Depends(get_property_service),
+) -> DealDocumentDownloadResponse:
+    """
+    Get a presigned URL to download the deal's source document from S3.
+
+    Returns a time-limited URL (1 hour expiration) that can be used to
+    download the original PDF/DOCX document that was uploaded for this deal.
+    """
+    deal = await property_service.get_deal(deal_id)
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+
+    if not deal.document_s3_key:
+        raise HTTPException(status_code=404, detail="No document associated with this deal")
+
+    try:
+        expiration = 3600  # 1 hour
+        download_url = property_service.generate_presigned_url(
+            deal.document_s3_key, expiration=expiration
+        )
+        return DealDocumentDownloadResponse(
+            downloadUrl=download_url,
+            filename=deal.document_filename or "document",
+            expiresIn=expiration,
+        )
+    except ClientError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate download URL: {str(e)}",
+        )
+
+
 @router.put("/{deal_id}", response_model=DealMemoResponse, response_model_by_alias=False)
 async def update_deal(
     deal_id: uuid.UUID,
@@ -134,6 +171,17 @@ async def update_deal(
         raise HTTPException(status_code=404, detail="Deal not found")
 
     return _property_to_response(deal)
+
+
+@router.delete("/{deal_id}", status_code=204)
+async def delete_deal(
+    deal_id: uuid.UUID,
+    property_service: PropertyService = Depends(get_property_service),
+) -> None:
+    """Delete a deal by ID."""
+    deleted = await property_service.delete_deal(deal_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Deal not found")
 
 
 @router.post("/upload", response_model=DealUploadResponse)
