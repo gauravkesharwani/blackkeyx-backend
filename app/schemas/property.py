@@ -154,17 +154,50 @@ class DealExtractionResponse(BaseModel):
 
 class DealListResponse(BaseModel):
     """
-    Deal list response.
+    Deal list response with pagination.
 
     Maps to DealListResponse from frontend:
     interface DealListResponse {
       deals: DealMemo[]
       total: number
+      page: number
+      pageSize: number
+      totalPages: number
     }
     """
 
     deals: List[DealMemoResponse]
     total: int
+    page: int = 1
+    pageSize: int = 20
+    totalPages: int = 0
+
+
+class SemanticSearchRequest(BaseModel):
+    """Request for semantic search of deals."""
+
+    query: str = Field(..., min_length=3, description="Natural language search query")
+    limit: int = Field(20, ge=1, le=50, description="Maximum number of results")
+    minSimilarity: float = Field(0.3, ge=0, le=1, alias="min_similarity", description="Minimum similarity threshold")
+    status: Optional[str] = Field(None, description="Optional status filter")
+
+    class Config:
+        populate_by_name = True
+
+
+class SemanticSearchResultItem(BaseModel):
+    """Single result from semantic search."""
+
+    deal: DealMemoResponse
+    similarity: float = Field(..., description="Similarity score (0-1)")
+
+
+class SemanticSearchResponse(BaseModel):
+    """Response from semantic search endpoint."""
+
+    results: List[SemanticSearchResultItem]
+    total: int
+    query: str
 
 
 class DealCreateRequest(BaseModel):

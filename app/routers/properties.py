@@ -14,8 +14,8 @@ Handles:
 import uuid
 
 from botocore.exceptions import ClientError
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from typing import Optional
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from typing import List, Optional, Tuple
 
 from app.dependencies import get_property_service
 from app.models.property import Property
@@ -36,6 +36,9 @@ from app.schemas.property import (
     InvestmentMetricsResponse,
     MarketAnalysisResponse,
     PropertyDetailsResponse,
+    SemanticSearchRequest,
+    SemanticSearchResponse,
+    SemanticSearchResultItem,
     TenantResponse,
 )
 from app.services.property_service import PropertyService
@@ -46,12 +49,41 @@ router = APIRouter()
 @router.get("", response_model=DealListResponse, response_model_by_alias=False)
 async def list_deals(
     property_service: PropertyService = Depends(get_property_service),
-    status: Optional[str] = None,
+    status: Optional[str] = Query(None, description="Filter by deal status: active, closed, paused"),
+    deal_type: Optional[str] = Query(None, alias="dealType", description="Filter by deal type"),
+    min_investment_max: Optional[int] = Query(None, alias="minInvestmentMax", description="Maximum minimum investment filter"),
+    search: Optional[str] = Query(None, description="Free-text search on name and summary"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, alias="pageSize", description="Items per page"),
 ) -> DealListResponse:
-    """Get list of deals."""
-    deals, total = await property_service.list_deals(status=status)
+    """
+    Get list of deals with optional filters.
+
+    Filters:
+    - status: Filter by deal status (active, closed, paused)
+    - dealType: Filter by property type (multifamily, commercial, etc.)
+    - minInvestmentMax: Show deals with minimum investment at or below this value
+    - search: Free-text search on deal name and summary
+    """
+    skip = (page - 1) * page_size
+    deals, total = await property_service.list_deals(
+        status=status,
+        deal_type=deal_type,
+        min_investment_max=min_investment_max,
+        search=search,
+        skip=skip,
+        limit=page_size,
+    )
     deal_responses = [_property_to_response(deal) for deal in deals]
-    return DealListResponse(deals=deal_responses, total=total)
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+
+    return DealListResponse(
+        deals=deal_responses,
+        total=total,
+        page=page,
+        pageSize=page_size,
+        totalPages=total_pages,
+    )
 
 
 @router.post("", response_model=DealMemoResponse, response_model_by_alias=False)
@@ -182,6 +214,53 @@ async def delete_deal(
     deleted = await property_service.delete_deal(deal_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Deal not found")
+
+
+@router.post("/search", response_model=SemanticSearchResponse, response_model_by_alias=False)
+async def semantic_search(
+    request: SemanticSearchRequest,
+    property_service: PropertyService = Depends(get_property_service),
+) -> SemanticSearchResponse:
+    """
+    Search for deals using natural language and semantic similarity.
+
+    This endpoint uses AI embeddings to find deals that semantically match
+    your query, even if they don't contain the exact keywords.
+
+    Example queries:
+    - "multifamily properties in growing markets"
+    - "value-add industrial deals with strong tenant base"
+    - "low risk stabilized assets with 7%+ cash-on-cash"
+    - "properties near major employment centers"
+
+    Returns deals ranked by semantic similarity score (0-1).
+    """
+    try:
+        results = await property_service.semantic_search(
+            query=request.query,
+            limit=request.limit,
+            min_similarity=request.minSimilarity,
+            status=request.status,
+        )
+
+        result_items = [
+            SemanticSearchResultItem(
+                deal=_property_to_response(deal),
+                similarity=round(similarity, 4),
+            )
+            for deal, similarity in results
+        ]
+
+        return SemanticSearchResponse(
+            results=result_items,
+            total=len(result_items),
+            query=request.query,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Semantic search failed: {str(e)}",
+        )
 
 
 @router.post("/upload", response_model=DealUploadResponse)

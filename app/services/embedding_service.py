@@ -534,3 +534,69 @@ class EmbeddingService:
         )
 
         return [(row.investor_id, float(row.avg_similarity)) for row in result.fetchall()]
+
+    async def search_properties_by_query(
+        self,
+        query: str,
+        limit: int = 20,
+        min_similarity: float = 0.3,
+        status: Optional[str] = None,
+    ) -> List[Tuple[uuid.UUID, float]]:
+        """
+        Search for properties using a natural language query.
+
+        This method generates an embedding for the query text and finds
+        properties with similar embeddings using cosine similarity.
+
+        Args:
+            query: Natural language search query (e.g., "multifamily in growing markets")
+            limit: Maximum number of results to return
+            min_similarity: Minimum similarity threshold (0-1)
+            status: Optional filter by property status (active, closed, paused)
+
+        Returns:
+            List of (property_id, similarity_score) tuples sorted by similarity
+        """
+        # Generate embedding for the query
+        try:
+            query_embedding = await self.generate_embedding(query)
+        except Exception as e:
+            logger.error(f"Failed to generate query embedding: {e}")
+            return []
+
+        # Build query to search properties by embedding similarity
+        # Join with properties table to filter by status if provided
+        query_sql = """
+            SELECT
+                pe.property_id,
+                AVG(1 - (pe.embedding <=> :query_embedding::vector)) as avg_similarity
+            FROM property_embeddings pe
+        """
+
+        if status:
+            query_sql += """
+                JOIN properties p ON pe.property_id = p.id
+                WHERE p.status = :status
+            """
+
+        query_sql += """
+            GROUP BY pe.property_id
+            HAVING AVG(1 - (pe.embedding <=> :query_embedding::vector)) >= :min_similarity
+            ORDER BY avg_similarity DESC
+            LIMIT :limit
+        """
+
+        params = {
+            "query_embedding": str(query_embedding),
+            "limit": limit,
+            "min_similarity": min_similarity,
+        }
+        if status:
+            params["status"] = status
+
+        result = await self.session.execute(text(query_sql), params)
+        rows = result.fetchall()
+
+        logger.info(f"Semantic search for '{query[:50]}...' found {len(rows)} results")
+
+        return [(row.property_id, float(row.avg_similarity)) for row in rows]

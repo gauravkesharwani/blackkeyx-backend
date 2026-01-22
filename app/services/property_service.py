@@ -46,13 +46,23 @@ class PropertyService:
         return self._s3_client
 
     async def list_deals(
-        self, status: Optional[str] = None
+        self,
+        status: Optional[str] = None,
+        deal_type: Optional[str] = None,
+        min_investment_max: Optional[int] = None,
+        search: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 100,
     ) -> Tuple[Sequence[Property], int]:
-        """List deals with optional status filter."""
-        if status:
-            deals = await self.property_repo.get_by_status(status)
-            return deals, len(deals)
-        return await self.property_repo.get_active_deals()
+        """List deals with optional filters and pagination."""
+        return await self.property_repo.search_deals(
+            status=status,
+            deal_type=deal_type,
+            min_investment_max=min_investment_max,
+            search=search,
+            skip=skip,
+            limit=limit,
+        )
 
     async def get_deal(self, deal_id: uuid.UUID) -> Optional[Property]:
         """Get deal by ID."""
@@ -509,3 +519,47 @@ class PropertyService:
         )
 
         return property_obj
+
+    async def semantic_search(
+        self,
+        query: str,
+        limit: int = 20,
+        min_similarity: float = 0.3,
+        status: Optional[str] = None,
+    ) -> list[tuple[Property, float]]:
+        """
+        Search for deals using natural language query and semantic similarity.
+
+        This method uses OpenAI embeddings and pgvector to find deals
+        that semantically match the query text.
+
+        Args:
+            query: Natural language search query
+            limit: Maximum number of results
+            min_similarity: Minimum similarity threshold (0-1)
+            status: Optional status filter
+
+        Returns:
+            List of (Property, similarity_score) tuples
+        """
+        embedding_service = EmbeddingService(self.session)
+
+        # Get property IDs with similarity scores
+        property_scores = await embedding_service.search_properties_by_query(
+            query=query,
+            limit=limit,
+            min_similarity=min_similarity,
+            status=status,
+        )
+
+        if not property_scores:
+            return []
+
+        # Fetch full Property objects
+        results = []
+        for property_id, similarity in property_scores:
+            property_obj = await self.property_repo.get(property_id)
+            if property_obj:
+                results.append((property_obj, similarity))
+
+        return results
