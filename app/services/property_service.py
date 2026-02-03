@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.repositories.property_repo import PropertyRepository
-from app.models.property import Property
+from app.models.property import Deal, Property
 from app.schemas.extraction import InvestorBriefExtraction
 from app.services.extraction_service import get_extraction_service
 from app.services.embedding_service import EmbeddingService
@@ -96,7 +96,11 @@ class PropertyService:
             timeline=timeline,
             status="active",
         )
-        return await self.property_repo.create(property_obj)
+        try:
+            return await self.property_repo.create(property_obj)
+        except Exception as e:
+            logger.error(f"Failed to save deal '{name}' to database: {e}", exc_info=True)
+            raise
 
     async def create_deal_from_extraction(
         self,
@@ -128,11 +132,18 @@ class PropertyService:
             Created Property with all related data
         """
         # Create property with all related data
-        property_obj = await self.property_repo.create_with_extraction(
-            extraction=extraction,
-            document_s3_key=document_s3_key,
-            document_filename=document_filename,
-        )
+        try:
+            property_obj = await self.property_repo.create_with_extraction(
+                extraction=extraction,
+                document_s3_key=document_s3_key,
+                document_filename=document_filename,
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to save deal '{extraction.deal_name}' with extraction data to database: {e}",
+                exc_info=True,
+            )
+            raise
 
         # Generate embeddings for semantic search
         if generate_embeddings:
@@ -294,7 +305,7 @@ class PropertyService:
 
         return self.generate_presigned_url(deal.document_s3_key)
 
-    async def extract_document(self, upload_id: str) -> dict:
+    async def extract_document(self, upload_id: str, deal_type: str = "industrial") -> dict:
         """
         Extract deal data from document using AI.
 
@@ -345,7 +356,7 @@ class PropertyService:
 
         # Extract data using the extraction service with base64-encoded PDF
         extraction_service = get_extraction_service()
-        extraction = await extraction_service.extract_from_pdf_bytes(pdf_content, filename)
+        extraction = await extraction_service.extract_from_pdf_bytes(pdf_content, filename, deal_type=deal_type)
 
         # Convert to legacy DealMemoExtraction format for API response
         deal_memo = extraction_service.convert_to_deal_memo(extraction)
@@ -365,7 +376,7 @@ class PropertyService:
             "raw_text": deal_memo.rawText,
         }
 
-    async def extract_document_full(self, upload_id: str) -> InvestorBriefExtraction:
+    async def extract_document_full(self, upload_id: str, deal_type: str = "industrial") -> InvestorBriefExtraction:
         """
         Extract FULL deal data from document using AI.
 
@@ -422,7 +433,9 @@ class PropertyService:
 
         # Extract data using the extraction service
         extraction_service = get_extraction_service()
-        extraction = await extraction_service.extract_from_pdf_bytes(pdf_content, filename)
+        extraction = await extraction_service.extract_from_pdf_bytes(
+            pdf_content, filename, deal_type=deal_type
+        )
 
         logger.info(
             f"Full extraction complete for {filename}: "
@@ -432,7 +445,8 @@ class PropertyService:
         return extraction
 
     async def extract_and_create_deal(
-        self, upload_id: str, generate_embeddings: bool = True
+        self, upload_id: str, deal_type: str = "industrial",
+        generate_embeddings: bool = True,
     ) -> Property:
         """
         Extract deal data from document and create the deal with all related data.
@@ -489,7 +503,7 @@ class PropertyService:
 
         # Extract data using the extraction service
         extraction_service = get_extraction_service()
-        extraction = await extraction_service.extract_from_pdf_bytes(pdf_content, filename)
+        extraction = await extraction_service.extract_from_pdf_bytes(pdf_content, filename, deal_type=deal_type)
 
         # Move document to permanent location
         permanent_s3_key = f"deals/{uuid.uuid4()}/{filename}"

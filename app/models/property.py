@@ -1,47 +1,42 @@
 """
-Property models - maps to DealMemo from frontend types/deal.ts
+Deal models - maps to DealMemo from frontend types/deal.ts
 
-Frontend type:
-interface DealMemo {
-  id: string
-  name: string
-  dealType: string
-  summary: string
-  thesis: string
-  minimumInvestment: number
-  targetReturn: string
-  riskFactors: string[]
-  idealInvestorProfile: string
-  structure: string
-  timeline: string
-  status: 'active' | 'closed' | 'paused'
-  createdAt: string
-  updatedAt: string
-}
+Renamed from Property to Deal to align with the new database schema.
+The Property alias is kept for backward compatibility.
 """
 import uuid
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import ForeignKey, Integer, Numeric, String, Text
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from app.models.asset_types.hotel import HotelDetails, HotelRoomMix
+    from app.models.asset_types.industrial import IndustrialDetails, IndustrialTenant
+    from app.models.asset_types.land import LandDetails
+    from app.models.asset_types.mixed_use import MixedUseComponent, MixedUseDetails
+    from app.models.asset_types.multifamily import MultifamilyDetails, MultifamilyUnitMix
+    from app.models.asset_types.office import OfficeDetails, OfficeTenant
+    from app.models.asset_types.retail import RetailDetails, RetailTenant
+    from app.models.asset_types.self_storage import SelfStorageDetails, SelfStorageUnitMix
+    from app.models.asset_types.student_housing import StudentHousingDetails
+    from app.models.deal_structure import Reserve, SponsorFees, WaterfallStructure
     from app.models.embeddings import PropertyEmbedding
-    from app.models.financial import AnnualProjection, Financing, InvestmentMetrics, Tenant
+    from app.models.financial import AnnualProjection, Financing, InvestmentMetrics
     from app.models.market import MarketAnalysis
     from app.models.matching import DealMatch
 
 
-class Property(Base, UUIDMixin, TimestampMixin):
+class Deal(Base, UUIDMixin, TimestampMixin):
     """
     Deal memo / property listing.
     Maps to DealMemo from frontend.
     """
 
-    __tablename__ = "properties"
+    __tablename__ = "deals"
 
     # Basic info
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -62,30 +57,32 @@ class Property(Base, UUIDMixin, TimestampMixin):
     # Status: 'active' | 'closed' | 'paused'
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
 
-    # Location (optional, for extended use)
+    # Location
     address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     state: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     zip_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
-    # Additional financial metrics
-    purchase_price: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Physical attributes (from former PropertyFeature)
+    year_built: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    year_renovated: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    parking_spaces: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # Financial metrics
+    purchase_price: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
     square_feet: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    total_equity_required: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    price_per_sf: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
+    replacement_cost_per_sf: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
+    discount_to_replacement_pct: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
+    total_equity_required: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
+    total_capitalization: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
 
     # S3 document reference
     document_s3_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     document_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    # === NEW FIELDS FROM INVESTOR BRIEF EXTRACTION ===
-
     # Strategy and thesis
     value_add_strategy: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-
-    # Capitalization
-    total_capitalization: Mapped[Optional[float]] = mapped_column(
-        Numeric(15, 2), nullable=True
-    )
 
     # Sponsor information
     sponsor_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -97,21 +94,14 @@ class Property(Base, UUIDMixin, TimestampMixin):
     )
     extraction_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # === RELATIONSHIPS ===
+    # === COMMON RELATIONSHIPS ===
 
-    features: Mapped[Optional["PropertyFeature"]] = relationship(
-        back_populates="property",
-        uselist=False,
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
     matches: Mapped[List["DealMatch"]] = relationship(
         back_populates="matched_property",
         cascade="all, delete-orphan",
         lazy="selectin",
     )
 
-    # NEW: Financial relationships
     investment_metrics: Mapped[Optional["InvestmentMetrics"]] = relationship(
         back_populates="property",
         uselist=False,
@@ -124,19 +114,12 @@ class Property(Base, UUIDMixin, TimestampMixin):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
-    tenants: Mapped[List["Tenant"]] = relationship(
-        back_populates="property",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
     annual_projections: Mapped[List["AnnualProjection"]] = relationship(
         back_populates="property",
         cascade="all, delete-orphan",
         lazy="selectin",
         order_by="AnnualProjection.year",
     )
-
-    # NEW: Market analysis
     market_analysis: Mapped[Optional["MarketAnalysis"]] = relationship(
         back_populates="property",
         uselist=False,
@@ -144,59 +127,96 @@ class Property(Base, UUIDMixin, TimestampMixin):
         lazy="selectin",
     )
 
-    # NEW: Embeddings for semantic search
+    # Deal structure relationships
+    sponsor_fees: Mapped[Optional["SponsorFees"]] = relationship(
+        back_populates="deal",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    waterfall_structure: Mapped[Optional["WaterfallStructure"]] = relationship(
+        back_populates="deal",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    reserves: Mapped[List["Reserve"]] = relationship(
+        back_populates="deal",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    # Embeddings for semantic search
     embeddings: Mapped[List["PropertyEmbedding"]] = relationship(
         back_populates="property",
         cascade="all, delete-orphan",
-        lazy="noload",  # Don't load by default (expensive)
+        lazy="noload",
+    )
+
+    # === ASSET-TYPE SPECIFIC RELATIONSHIPS ===
+
+    industrial_details: Mapped[Optional["IndustrialDetails"]] = relationship(
+        back_populates="deal", uselist=False, cascade="all, delete-orphan", lazy="noload"
+    )
+    industrial_tenants: Mapped[List["IndustrialTenant"]] = relationship(
+        back_populates="deal", cascade="all, delete-orphan", lazy="noload"
+    )
+    multifamily_details: Mapped[Optional["MultifamilyDetails"]] = relationship(
+        back_populates="deal", uselist=False, cascade="all, delete-orphan", lazy="noload"
+    )
+    multifamily_unit_mix: Mapped[List["MultifamilyUnitMix"]] = relationship(
+        back_populates="deal", cascade="all, delete-orphan", lazy="noload"
+    )
+    retail_details: Mapped[Optional["RetailDetails"]] = relationship(
+        back_populates="deal", uselist=False, cascade="all, delete-orphan", lazy="noload"
+    )
+    retail_tenants: Mapped[List["RetailTenant"]] = relationship(
+        back_populates="deal", cascade="all, delete-orphan", lazy="noload"
+    )
+    office_details: Mapped[Optional["OfficeDetails"]] = relationship(
+        back_populates="deal", uselist=False, cascade="all, delete-orphan", lazy="noload"
+    )
+    office_tenants: Mapped[List["OfficeTenant"]] = relationship(
+        back_populates="deal", cascade="all, delete-orphan", lazy="noload"
+    )
+    self_storage_details: Mapped[Optional["SelfStorageDetails"]] = relationship(
+        back_populates="deal", uselist=False, cascade="all, delete-orphan", lazy="noload"
+    )
+    self_storage_unit_mix: Mapped[List["SelfStorageUnitMix"]] = relationship(
+        back_populates="deal", cascade="all, delete-orphan", lazy="noload"
+    )
+    student_housing_details: Mapped[Optional["StudentHousingDetails"]] = relationship(
+        back_populates="deal", uselist=False, cascade="all, delete-orphan", lazy="noload"
+    )
+    hotel_details: Mapped[Optional["HotelDetails"]] = relationship(
+        back_populates="deal", uselist=False, cascade="all, delete-orphan", lazy="noload"
+    )
+    hotel_room_mix: Mapped[List["HotelRoomMix"]] = relationship(
+        back_populates="deal", cascade="all, delete-orphan", lazy="noload"
+    )
+    land_details: Mapped[Optional["LandDetails"]] = relationship(
+        back_populates="deal", uselist=False, cascade="all, delete-orphan", lazy="noload"
+    )
+    mixed_use_details: Mapped[Optional["MixedUseDetails"]] = relationship(
+        back_populates="deal", uselist=False, cascade="all, delete-orphan", lazy="noload"
+    )
+    mixed_use_components: Mapped[List["MixedUseComponent"]] = relationship(
+        back_populates="deal", cascade="all, delete-orphan", lazy="noload"
     )
 
 
-class PropertyFeature(Base, UUIDMixin, TimestampMixin):
-    """
-    Flexible JSONB-based features for multi-asset class support.
-    Stores asset-specific attributes without schema migrations.
-    """
-
-    __tablename__ = "property_features"
-
-    property_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("properties.id", ondelete="CASCADE"),
-        unique=True,
-        nullable=False,
-    )
-
-    # Asset type determines which schema to validate against
-    # e.g., 'industrial', 'multifamily', 'office', 'retail'
-    asset_type: Mapped[str] = mapped_column(String(50), nullable=False)
-
-    # All features stored as JSONB (asset-specific)
-    # Example for industrial: {"clear_height_min": 32, "loading_docks": 24}
-    # Example for multifamily: {"unit_count": 250, "amenities": ["pool", "gym"]}
-    features: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, default=dict, server_default="{}", nullable=False
-    )
-
-    # Common fields (applicable to most asset types)
-    year_built: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    year_renovated: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    parking_spaces: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-
-    # Relationship
-    property: Mapped["Property"] = relationship(back_populates="features")
+# Backward compatibility alias
+Property = Deal
 
 
 class PropertyDocument(Base, UUIDMixin, TimestampMixin):
-    """
-    Uploaded document reference for a property.
-    """
+    """Uploaded document reference for a deal."""
 
     __tablename__ = "property_documents"
 
     property_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("properties.id", ondelete="CASCADE"),
+        ForeignKey("deals.id", ondelete="CASCADE"),
         nullable=False,
     )
 
