@@ -51,6 +51,15 @@ class InvestmentMetricsExtraction(BaseModel):
     preferred_return: Optional[float] = Field(
         None, description="Preferred return percentage (e.g., 8.0 for 8%)"
     )
+    return_from_cash_flow_pct: Optional[float] = Field(
+        None, description="Percentage of total return from cash flow"
+    )
+    return_from_sale_pct: Optional[float] = Field(
+        None, description="Percentage of total return from sale/reversion"
+    )
+    return_profile: Optional[str] = Field(
+        None, description="Return profile category (e.g., 'cash-flow-heavy', 'appreciation', 'balanced')"
+    )
 
 
 class FinancingExtraction(BaseModel):
@@ -108,6 +117,15 @@ class MarketAnalysisExtraction(BaseModel):
     comparable_sales: Optional[str] = Field(
         None, description="Recent comparable sales information"
     )
+    new_construction_pct: Optional[float] = Field(
+        None, description="New construction as percentage of existing inventory"
+    )
+    absorption_rate: Optional[float] = Field(
+        None, description="Net absorption rate (square feet or units)"
+    )
+    landlord_pricing_power: Optional[str] = Field(
+        None, description="Landlord pricing power assessment (e.g., 'strong', 'moderate', 'weak')"
+    )
 
 
 class AnnualProjectionExtraction(BaseModel):
@@ -123,6 +141,89 @@ class AnnualProjectionExtraction(BaseModel):
     )
     noi: Optional[float] = Field(None, description="Net operating income in USD")
     cash_flow: Optional[float] = Field(None, description="Cash flow in USD")
+    cash_on_cash_return: Optional[float] = Field(
+        None, description="Cash-on-cash return percentage for this year"
+    )
+    irr_through_year: Optional[float] = Field(
+        None, description="Cumulative IRR through this year"
+    )
+
+
+# ========================================
+# New: Sponsor Fees & Waterfall Extraction
+# ========================================
+
+
+class SponsorFeesExtraction(BaseModel):
+    """Sponsor fee structure extracted from investor brief."""
+
+    acquisition_fee_pct: Optional[float] = Field(
+        None, description="Acquisition fee percentage"
+    )
+    acquisition_fee_amount: Optional[float] = Field(
+        None, description="Acquisition fee flat amount in USD"
+    )
+    asset_management_fee_pct: Optional[float] = Field(
+        None, description="Asset management fee percentage"
+    )
+    property_management_fee_pct: Optional[float] = Field(
+        None, description="Property management fee percentage"
+    )
+    construction_supervision_fee_pct: Optional[float] = Field(
+        None, description="Construction supervision fee percentage"
+    )
+    disposition_fee_pct: Optional[float] = Field(
+        None, description="Disposition fee percentage"
+    )
+    guarantee_fee_pct: Optional[float] = Field(
+        None, description="Guarantee fee percentage"
+    )
+
+
+class WaterfallStructureExtraction(BaseModel):
+    """Waterfall / promote structure extracted from investor brief."""
+
+    preferred_return_pct: Optional[float] = Field(
+        None, description="Preferred return percentage"
+    )
+    promote_tier_1_pct: Optional[float] = Field(
+        None, description="Tier 1 promote percentage to sponsor"
+    )
+    promote_tier_1_hurdle: Optional[float] = Field(
+        None, description="Tier 1 IRR hurdle percentage"
+    )
+    promote_tier_2_pct: Optional[float] = Field(
+        None, description="Tier 2 promote percentage to sponsor"
+    )
+    promote_tier_2_hurdle: Optional[float] = Field(
+        None, description="Tier 2 IRR hurdle percentage"
+    )
+    sponsor_coinvest_pct: Optional[float] = Field(
+        None, description="Sponsor co-investment percentage"
+    )
+    sponsor_coinvest_amount: Optional[float] = Field(
+        None, description="Sponsor co-investment dollar amount"
+    )
+
+
+class ReserveExtraction(BaseModel):
+    """Reserve account extracted from investor brief."""
+
+    reserve_type: str = Field(
+        ..., description="Type of reserve (e.g., 'capex', 'tenant_improvement', 'operating', 'interest')"
+    )
+    reserve_amount: Optional[float] = Field(
+        None, description="Reserve amount in USD"
+    )
+    reserve_purpose: Optional[str] = Field(
+        None, description="Purpose or description of the reserve"
+    )
+    release_conditions: Optional[str] = Field(
+        None, description="Conditions under which reserves are released"
+    )
+    lender_controlled: Optional[bool] = Field(
+        None, description="Whether the reserve is lender-controlled"
+    )
 
 
 class InvestorBriefExtraction(BaseModel):
@@ -154,6 +255,9 @@ class InvestorBriefExtraction(BaseModel):
     )
 
     # Financials
+    purchase_price: Optional[float] = Field(
+        None, description="Purchase price in USD"
+    )
     total_capitalization: Optional[float] = Field(
         None, description="Total capitalization in USD"
     )
@@ -165,6 +269,15 @@ class InvestorBriefExtraction(BaseModel):
     )
     hold_period_years: Optional[str] = Field(
         None, description="Expected hold period (e.g., '5-7 years')"
+    )
+    price_per_sf: Optional[float] = Field(
+        None, description="Price per square foot"
+    )
+    replacement_cost_per_sf: Optional[float] = Field(
+        None, description="Replacement cost per square foot"
+    )
+    discount_to_replacement_pct: Optional[float] = Field(
+        None, description="Discount to replacement cost percentage"
     )
 
     # Risk and fit
@@ -181,7 +294,7 @@ class InvestorBriefExtraction(BaseModel):
         None, description="Sponsor's track record and experience"
     )
 
-    # Nested objects
+    # Nested objects - common
     property_details: Optional[PropertyDetailsExtraction] = Field(
         None, description="Property location and physical details"
     )
@@ -201,6 +314,17 @@ class InvestorBriefExtraction(BaseModel):
         default_factory=list, description="Year-by-year projections"
     )
 
+    # Deal structure
+    sponsor_fees: Optional[SponsorFeesExtraction] = Field(
+        None, description="Sponsor fee structure"
+    )
+    waterfall_structure: Optional[WaterfallStructureExtraction] = Field(
+        None, description="Waterfall / promote structure"
+    )
+    reserves: List[ReserveExtraction] = Field(
+        default_factory=list, description="Reserve accounts"
+    )
+
     # Extraction metadata
     confidence_score: float = Field(
         ..., description="Confidence score 0-1 for extraction quality"
@@ -208,60 +332,3 @@ class InvestorBriefExtraction(BaseModel):
     extraction_notes: Optional[str] = Field(
         None, description="Notes about extraction issues or uncertainties"
     )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "deal_name": "Barber Greene Industrial Portfolio",
-                "property_type": "industrial",
-                "deal_structure": "LP/GP",
-                "executive_summary": "Acquisition of a 500,000 SF industrial portfolio...",
-                "investment_thesis": "Strong fundamentals with value-add opportunity...",
-                "value_add_strategy": "Mark-to-market rents and operational improvements...",
-                "total_capitalization": 45000000,
-                "equity_required": 15000000,
-                "minimum_investment": 100000,
-                "hold_period_years": "5-7 years",
-                "risk_factors": ["Market risk", "Interest rate risk"],
-                "ideal_investor_profile": "Accredited investors seeking stable cash flow",
-                "sponsor_name": "ABC Capital Partners",
-                "sponsor_track_record": "15+ years experience, $2B deployed",
-                "property_details": {
-                    "address": "123 Industrial Way",
-                    "city": "Chicago",
-                    "state": "IL",
-                    "zip_code": "60601",
-                    "total_square_feet": 500000,
-                },
-                "investment_metrics": {
-                    "target_irr_min": 15.0,
-                    "target_irr_max": 20.0,
-                    "target_equity_multiple": 1.8,
-                    "cap_rate_going_in": 6.5,
-                    "preferred_return": 8.0,
-                },
-                "financing": {
-                    "loan_amount": 30000000,
-                    "ltv_ratio": 65.0,
-                    "interest_rate": 5.5,
-                    "loan_term_years": 5,
-                },
-                "major_tenants": [
-                    {
-                        "tenant_name": "Amazon",
-                        "square_feet": 200000,
-                        "annual_rent": 1600000,
-                        "lease_expiration": "2028",
-                        "tenant_type": "national",
-                    }
-                ],
-                "market_analysis": {
-                    "market_name": "Chicago",
-                    "submarket": "O'Hare",
-                    "employment_drivers": ["E-commerce", "Manufacturing"],
-                    "market_vacancy_rate": 4.5,
-                },
-                "confidence_score": 0.92,
-                "extraction_notes": None,
-            }
-        }

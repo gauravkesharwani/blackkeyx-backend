@@ -2,43 +2,73 @@
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 from app.models.consent import Consent, LeadNote, StageHistory
+from app.models.deal_structure import Reserve, SponsorFees, WaterfallStructure
 from app.models.embeddings import InvestorEmbedding, PropertyEmbedding
-from app.models.financial import AnnualProjection, Financing, InvestmentMetrics, Tenant
+from app.models.financial import AnnualProjection, Financing, InvestmentMetrics
 from app.models.investor import InvestorPreferences, InvestorProfile
 from app.models.market import MarketAnalysis
 from app.models.matching import DealMatch
-from app.models.property import Property, PropertyDocument, PropertyFeature
+from app.models.property import Deal, Property, PropertyDocument
 from app.models.voice import CallSession, CallTranscript
 
+# Asset type models
+from app.models.asset_types import (
+    HotelDetails,
+    HotelRoomMix,
+    IndustrialDetails,
+    IndustrialTenant,
+    LandDetails,
+    MixedUseComponent,
+    MixedUseDetails,
+    MultifamilyDetails,
+    MultifamilyUnitMix,
+    OfficeDetails,
+    OfficeTenant,
+    RetailDetails,
+    RetailTenant,
+    SelfStorageDetails,
+    SelfStorageUnitMix,
+    StudentHousingDetails,
+)
+
 __all__ = [
-    # Base
     "Base",
     "UUIDMixin",
     "TimestampMixin",
-    # Investor
     "InvestorProfile",
     "InvestorPreferences",
-    # Property
+    "Deal",
     "Property",
-    "PropertyFeature",
     "PropertyDocument",
-    # Financial
     "InvestmentMetrics",
     "Financing",
-    "Tenant",
     "AnnualProjection",
-    # Market
     "MarketAnalysis",
-    # Embeddings
+    "SponsorFees",
+    "WaterfallStructure",
+    "Reserve",
     "PropertyEmbedding",
     "InvestorEmbedding",
-    # Consent
     "Consent",
     "LeadNote",
     "StageHistory",
-    # Matching
     "DealMatch",
-    # Voice
     "CallSession",
     "CallTranscript",
+    "IndustrialDetails",
+    "IndustrialTenant",
+    "MultifamilyDetails",
+    "MultifamilyUnitMix",
+    "RetailDetails",
+    "RetailTenant",
+    "OfficeDetails",
+    "OfficeTenant",
+    "SelfStorageDetails",
+    "SelfStorageUnitMix",
+    "StudentHousingDetails",
+    "HotelDetails",
+    "HotelRoomMix",
+    "LandDetails",
+    "MixedUseDetails",
+    "MixedUseComponent",
 ]

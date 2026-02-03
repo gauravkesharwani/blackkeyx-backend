@@ -575,7 +575,7 @@ class EmbeddingService:
 
         if status:
             query_sql += """
-                JOIN properties p ON pe.property_id = p.id
+                JOIN deals p ON pe.property_id = p.id
                 WHERE p.status = :status
             """
 

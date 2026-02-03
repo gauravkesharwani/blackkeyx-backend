@@ -269,6 +269,9 @@ class InvestmentMetricsResponse(BaseModel):
     capRateGoingIn: Optional[float] = Field(None, alias="cap_rate_going_in")
     capRateExit: Optional[float] = Field(None, alias="cap_rate_exit")
     preferredReturn: Optional[float] = Field(None, alias="preferred_return")
+    returnFromCashFlowPct: Optional[float] = Field(None, alias="return_from_cash_flow_pct")
+    returnFromSalePct: Optional[float] = Field(None, alias="return_from_sale_pct")
+    returnProfile: Optional[str] = Field(None, alias="return_profile")
 
     class Config:
         populate_by_name = True
@@ -312,6 +315,9 @@ class MarketAnalysisResponse(BaseModel):
     marketVacancyRate: Optional[float] = Field(None, alias="market_vacancy_rate")
     marketRentGrowth: Optional[str] = Field(None, alias="market_rent_growth")
     comparableSales: Optional[str] = Field(None, alias="comparable_sales")
+    newConstructionPct: Optional[float] = Field(None, alias="new_construction_pct")
+    absorptionRate: Optional[float] = Field(None, alias="absorption_rate")
+    landlordPricingPower: Optional[str] = Field(None, alias="landlord_pricing_power")
 
     class Config:
         populate_by_name = True
@@ -326,9 +332,74 @@ class AnnualProjectionResponse(BaseModel):
     operatingExpenses: Optional[float] = Field(None, alias="operating_expenses")
     noi: Optional[float] = None
     cashFlow: Optional[float] = Field(None, alias="cash_flow")
+    cashOnCashReturn: Optional[float] = Field(None, alias="cash_on_cash_return")
+    irrThroughYear: Optional[float] = Field(None, alias="irr_through_year")
 
     class Config:
         populate_by_name = True
+
+
+class SponsorFeesResponse(BaseModel):
+    """Sponsor fee structure."""
+
+    acquisitionFeePct: Optional[float] = Field(None, alias="acquisition_fee_pct")
+    assetManagementFeePct: Optional[float] = Field(None, alias="asset_management_fee_pct")
+    propertyManagementFeePct: Optional[float] = Field(None, alias="property_management_fee_pct")
+    constructionSupervisionFeePct: Optional[float] = Field(None, alias="construction_supervision_fee_pct")
+    dispositionFeePct: Optional[float] = Field(None, alias="disposition_fee_pct")
+    guaranteeFeePct: Optional[float] = Field(None, alias="guarantee_fee_pct")
+
+    class Config:
+        populate_by_name = True
+
+
+class WaterfallStructureResponse(BaseModel):
+    """Waterfall distribution structure."""
+
+    preferredReturnPct: Optional[float] = Field(None, alias="preferred_return_pct")
+    promoteTier1Pct: Optional[float] = Field(None, alias="promote_tier1_pct")
+    promoteTier1Hurdle: Optional[float] = Field(None, alias="promote_tier1_hurdle")
+    promoteTier2Pct: Optional[float] = Field(None, alias="promote_tier2_pct")
+    promoteTier2Hurdle: Optional[float] = Field(None, alias="promote_tier2_hurdle")
+    sponsorCoinvestPct: Optional[float] = Field(None, alias="sponsor_coinvest_pct")
+    sponsorCoinvestAmount: Optional[float] = Field(None, alias="sponsor_coinvest_amount")
+
+    class Config:
+        populate_by_name = True
+
+
+class ReserveResponse(BaseModel):
+    """Reserve account details."""
+
+    reserveType: Optional[str] = Field(None, alias="reserve_type")
+    reserveAmount: Optional[float] = Field(None, alias="reserve_amount")
+    reservePurpose: Optional[str] = Field(None, alias="reserve_purpose")
+    releaseConditions: Optional[str] = Field(None, alias="release_conditions")
+    lenderControlled: Optional[bool] = Field(None, alias="lender_controlled")
+
+    class Config:
+        populate_by_name = True
+
+
+# ============================================
+# Asset-Type Specific Response Schemas
+# ============================================
+
+
+class AssetDetailsResponse(BaseModel):
+    """Base for asset-specific detail responses. Uses dict for flexible per-type fields."""
+
+    class Config:
+        populate_by_name = True
+        from_attributes = True
+
+
+class AssetTenantsResponse(BaseModel):
+    """Base for asset-specific tenant/unit mix responses."""
+
+    class Config:
+        populate_by_name = True
+        from_attributes = True
 
 
 class FullExtractionResponse(BaseModel):
@@ -349,6 +420,10 @@ class FullExtractionResponse(BaseModel):
     valueAddStrategy: Optional[str] = Field(None, alias="value_add_strategy")
 
     # Financials
+    purchasePrice: Optional[float] = Field(None, alias="purchase_price")
+    pricePerSf: Optional[float] = Field(None, alias="price_per_sf")
+    replacementCostPerSf: Optional[float] = Field(None, alias="replacement_cost_per_sf")
+    discountToReplacementPct: Optional[float] = Field(None, alias="discount_to_replacement_pct")
     totalCapitalization: Optional[float] = Field(None, alias="total_capitalization")
     equityRequired: Optional[float] = Field(None, alias="equity_required")
     minimumInvestment: Optional[int] = Field(None, alias="minimum_investment")
@@ -369,6 +444,9 @@ class FullExtractionResponse(BaseModel):
     majorTenants: List[TenantResponse] = Field(default_factory=list, alias="major_tenants")
     marketAnalysis: Optional[MarketAnalysisResponse] = Field(None, alias="market_analysis")
     annualProjections: List[AnnualProjectionResponse] = Field(default_factory=list, alias="annual_projections")
+    sponsorFees: Optional[SponsorFeesResponse] = Field(None, alias="sponsor_fees")
+    waterfallStructure: Optional[WaterfallStructureResponse] = Field(None, alias="waterfall_structure")
+    reserves: List[ReserveResponse] = Field(default_factory=list)
 
     # Extraction metadata
     confidenceScore: float = Field(..., alias="confidence_score")
@@ -415,23 +493,33 @@ class FullDealResponse(BaseModel):
     createdAt: datetime = Field(..., alias="created_at")
     updatedAt: datetime = Field(..., alias="updated_at")
 
-    # Extended fields from Property model
+    # Extended fields from Deal model
     valueAddStrategy: Optional[str] = Field(None, alias="value_add_strategy")
+    purchasePrice: Optional[float] = Field(None, alias="purchase_price")
+    pricePerSf: Optional[float] = Field(None, alias="price_per_sf")
+    replacementCostPerSf: Optional[float] = Field(None, alias="replacement_cost_per_sf")
+    discountToReplacementPct: Optional[float] = Field(None, alias="discount_to_replacement_pct")
     totalCapitalization: Optional[float] = Field(None, alias="total_capitalization")
     sponsorName: Optional[str] = Field(None, alias="sponsor_name")
     sponsorTrackRecord: Optional[str] = Field(None, alias="sponsor_track_record")
     extractionConfidence: Optional[float] = Field(None, alias="extraction_confidence")
     extractionNotes: Optional[str] = Field(None, alias="extraction_notes")
 
-    # Property details (from Property and PropertyFeature)
+    # Property details
     propertyDetails: Optional[PropertyDetailsResponse] = Field(None, alias="property_details")
 
     # Nested related data
     investmentMetrics: Optional[InvestmentMetricsResponse] = Field(None, alias="investment_metrics")
     financing: Optional[FinancingResponse] = None
-    majorTenants: List[TenantResponse] = Field(default_factory=list, alias="major_tenants")
     marketAnalysis: Optional[MarketAnalysisResponse] = Field(None, alias="market_analysis")
     annualProjections: List[AnnualProjectionResponse] = Field(default_factory=list, alias="annual_projections")
+    sponsorFees: Optional[SponsorFeesResponse] = Field(None, alias="sponsor_fees")
+    waterfallStructure: Optional[WaterfallStructureResponse] = Field(None, alias="waterfall_structure")
+    reserves: List[ReserveResponse] = Field(default_factory=list)
+
+    # Asset-specific data (populated based on dealType)
+    assetDetails: Optional[dict] = Field(None, alias="asset_details")
+    assetTenants: Optional[list] = Field(None, alias="asset_tenants")
 
     @field_serializer("createdAt", "updatedAt")
     def serialize_datetime(self, dt: datetime) -> str:

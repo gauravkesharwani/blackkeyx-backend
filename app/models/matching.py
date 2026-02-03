@@ -1,17 +1,4 @@
-"""
-DealMatch model - maps to DealMatch from frontend types/lead.ts
-
-Frontend type:
-interface DealMatch {
-  id: string
-  dealMemoId: string
-  dealName: string
-  similarityScore: number
-  matchReasons: string[]
-  status: 'pending' | 'presented' | 'accepted' | 'rejected'
-  createdAt: string
-}
-"""
+"""DealMatch model - matches investors to deals."""
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, List, Optional
@@ -24,24 +11,11 @@ from app.models.base import Base, UUIDMixin
 
 if TYPE_CHECKING:
     from app.models.investor import InvestorProfile
-    from app.models.property import Property
+    from app.models.property import Deal
 
 
 class DealMatch(Base, UUIDMixin):
-    """
-    Match between an investor and a property/deal.
-
-    Maps to DealMatch from frontend:
-    interface DealMatch {
-      id: string
-      dealMemoId: string
-      dealName: string
-      similarityScore: number
-      matchReasons: string[]
-      status: 'pending' | 'presented' | 'accepted' | 'rejected'
-      createdAt: string
-    }
-    """
+    """Match between an investor and a deal."""
 
     __tablename__ = "deal_matches"
 
@@ -53,22 +27,17 @@ class DealMatch(Base, UUIDMixin):
 
     property_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("properties.id", ondelete="CASCADE"),
+        ForeignKey("deals.id", ondelete="CASCADE"),
         nullable=False,
     )
 
-    # Match scoring
     similarity_score: Mapped[float] = mapped_column(
         Numeric(5, 4), default=0.0, nullable=False
     )
     match_reasons: Mapped[List[str]] = mapped_column(
         ARRAY(String), default=list, server_default="{}"
     )
-
-    # Status: 'pending' | 'presented' | 'accepted' | 'rejected'
     status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
-
-    # Optional notes
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -77,48 +46,30 @@ class DealMatch(Base, UUIDMixin):
         nullable=False,
     )
 
-    # === NEW: Multi-layer scoring fields ===
-
-    # Layer 1: Hard filters (pass/fail)
     hard_filter_passed: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
-
-    # Layer 2: Soft scoring (0-100)
     soft_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
-
-    # Layer 3: Semantic similarity (0-100)
     semantic_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
-
-    # Final combined score: soft_score * 0.7 + semantic_score * 0.3
     final_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
 
-    # Concerns identified during matching
     concerns: Mapped[List[str]] = mapped_column(
         ARRAY(String), default=list, server_default="{}"
     )
-
-    # Detailed score breakdown by category
     score_breakdown: Mapped[Optional[dict]] = mapped_column(
         JSONB, default=dict, server_default="{}"
     )
 
-    # Presentation tracking
     presented_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-
-    # Investor response details
     investor_response: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
-    # Relationships
     investor: Mapped["InvestorProfile"] = relationship(back_populates="matches")
-    matched_property: Mapped["Property"] = relationship(back_populates="matches")
+    matched_property: Mapped["Deal"] = relationship(back_populates="matches")
 
     @property
     def deal_memo_id(self) -> str:
-        """Alias for property_id to match frontend naming."""
         return str(self.property_id)
 
     @property
     def deal_name(self) -> str:
-        """Get the property name for frontend compatibility."""
         return self.matched_property.name if self.matched_property else ""

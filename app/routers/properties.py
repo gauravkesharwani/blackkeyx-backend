@@ -11,6 +11,7 @@ Handles:
 - POST /api/v1/properties/extract - Extract data from document
 """
 
+import logging
 import uuid
 
 from botocore.exceptions import ClientError
@@ -36,12 +37,17 @@ from app.schemas.property import (
     InvestmentMetricsResponse,
     MarketAnalysisResponse,
     PropertyDetailsResponse,
+    ReserveResponse,
     SemanticSearchRequest,
     SemanticSearchResponse,
     SemanticSearchResultItem,
+    SponsorFeesResponse,
     TenantResponse,
+    WaterfallStructureResponse,
 )
 from app.services.property_service import PropertyService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -92,19 +98,26 @@ async def create_deal(
     property_service: PropertyService = Depends(get_property_service),
 ) -> DealMemoResponse:
     """Create a new deal from extracted data."""
-    property_obj = await property_service.create_deal(
-        name=deal_data.name,
-        deal_type=deal_data.dealType,
-        summary=deal_data.summary,
-        thesis=deal_data.thesis,
-        minimum_investment=deal_data.minimumInvestment,
-        target_return=deal_data.targetReturn,
-        risk_factors=deal_data.riskFactors,
-        ideal_investor_profile=deal_data.idealInvestorProfile,
-        structure=deal_data.structure,
-        timeline=deal_data.timeline,
-    )
-    return _property_to_response(property_obj)
+    try:
+        property_obj = await property_service.create_deal(
+            name=deal_data.name,
+            deal_type=deal_data.dealType,
+            summary=deal_data.summary,
+            thesis=deal_data.thesis,
+            minimum_investment=deal_data.minimumInvestment,
+            target_return=deal_data.targetReturn,
+            risk_factors=deal_data.riskFactors,
+            ideal_investor_profile=deal_data.idealInvestorProfile,
+            structure=deal_data.structure,
+            timeline=deal_data.timeline,
+        )
+        return _property_to_response(property_obj)
+    except Exception as e:
+        logger.error(f"Failed to create deal '{deal_data.name}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create deal: {str(e)}",
+        )
 
 
 @router.get("/{deal_id}", response_model=DealMemoResponse, response_model_by_alias=False)
@@ -307,6 +320,7 @@ async def upload_document(
 @router.post("/extract", response_model=DealExtractionResponse, response_model_by_alias=False)
 async def extract_document(
     upload_id: str = Form(...),
+    deal_type: str = Form("industrial", alias="dealType"),
     property_service: PropertyService = Depends(get_property_service),
 ) -> DealExtractionResponse:
     """
@@ -314,12 +328,13 @@ async def extract_document(
 
     Requires uploadId from previous upload.
     Uses OpenAI structured outputs for extraction.
+    Pass dealType to select the correct extraction template.
 
     Note: This endpoint only extracts and returns data. To create a deal with
     all related data (financing, tenants, projections, etc.), use the
     POST /api/v1/properties/create-from-upload endpoint instead.
     """
-    extracted = await property_service.extract_document(upload_id)
+    extracted = await property_service.extract_document(upload_id, deal_type=deal_type)
 
     extraction = DealMemoExtraction(
         name=extracted["name"],
@@ -345,6 +360,7 @@ async def extract_document(
 @router.post("/extract-full", response_model=FullExtractionResponseWrapper, response_model_by_alias=False)
 async def extract_document_full(
     upload_id: str = Form(...),
+    deal_type: str = Form("industrial", alias="dealType"),
     property_service: PropertyService = Depends(get_property_service),
 ) -> FullExtractionResponseWrapper:
     """
@@ -359,11 +375,13 @@ async def extract_document_full(
     - Market analysis (market data, vacancy, rent growth)
     - Property details (address, square footage)
     - Sponsor information
+    - Sponsor fees & waterfall structure
+    - Reserves
 
     Use this endpoint when you want to preview all extracted data before saving.
     After preview/edit, call POST /create-from-upload with the same uploadId to save.
     """
-    full_extraction = await property_service.extract_document_full(upload_id)
+    full_extraction = await property_service.extract_document_full(upload_id, deal_type=deal_type)
 
     # Convert to response schemas
     property_details = None
@@ -389,6 +407,9 @@ async def extract_document_full(
             capRateGoingIn=full_extraction.investment_metrics.cap_rate_going_in,
             capRateExit=full_extraction.investment_metrics.cap_rate_exit,
             preferredReturn=full_extraction.investment_metrics.preferred_return,
+            returnFromCashFlowPct=full_extraction.investment_metrics.return_from_cash_flow_pct,
+            returnFromSalePct=full_extraction.investment_metrics.return_from_sale_pct,
+            returnProfile=full_extraction.investment_metrics.return_profile,
         )
 
     financing = None
@@ -424,6 +445,9 @@ async def extract_document_full(
             marketVacancyRate=full_extraction.market_analysis.market_vacancy_rate,
             marketRentGrowth=full_extraction.market_analysis.market_rent_growth,
             comparableSales=full_extraction.market_analysis.comparable_sales,
+            newConstructionPct=full_extraction.market_analysis.new_construction_pct,
+            absorptionRate=full_extraction.market_analysis.absorption_rate,
+            landlordPricingPower=full_extraction.market_analysis.landlord_pricing_power,
         )
 
     annual_projections = [
@@ -434,8 +458,47 @@ async def extract_document_full(
             operatingExpenses=p.operating_expenses,
             noi=p.noi,
             cashFlow=p.cash_flow,
+            cashOnCashReturn=p.cash_on_cash_return,
+            irrThroughYear=p.irr_through_year,
         )
         for p in full_extraction.annual_projections
+    ]
+
+    # Build sponsor fees, waterfall, reserves
+    sponsor_fees = None
+    if full_extraction.sponsor_fees:
+        sf = full_extraction.sponsor_fees
+        sponsor_fees = SponsorFeesResponse(
+            acquisitionFeePct=sf.acquisition_fee_pct,
+            assetManagementFeePct=sf.asset_management_fee_pct,
+            propertyManagementFeePct=sf.property_management_fee_pct,
+            constructionSupervisionFeePct=sf.construction_supervision_fee_pct,
+            dispositionFeePct=sf.disposition_fee_pct,
+            guaranteeFeePct=sf.guarantee_fee_pct,
+        )
+
+    waterfall_structure = None
+    if full_extraction.waterfall_structure:
+        ws = full_extraction.waterfall_structure
+        waterfall_structure = WaterfallStructureResponse(
+            preferredReturnPct=ws.preferred_return_pct,
+            promoteTier1Pct=ws.promote_tier_1_pct,
+            promoteTier1Hurdle=ws.promote_tier_1_hurdle,
+            promoteTier2Pct=ws.promote_tier_2_pct,
+            promoteTier2Hurdle=ws.promote_tier_2_hurdle,
+            sponsorCoinvestPct=ws.sponsor_coinvest_pct,
+            sponsorCoinvestAmount=ws.sponsor_coinvest_amount,
+        )
+
+    reserves = [
+        ReserveResponse(
+            reserveType=r.reserve_type,
+            reserveAmount=r.reserve_amount,
+            reservePurpose=r.reserve_purpose,
+            releaseConditions=r.release_conditions,
+            lenderControlled=r.lender_controlled,
+        )
+        for r in (full_extraction.reserves or [])
     ]
 
     # Build target return string
@@ -459,6 +522,10 @@ async def extract_document_full(
         executiveSummary=full_extraction.executive_summary,
         investmentThesis=full_extraction.investment_thesis,
         valueAddStrategy=full_extraction.value_add_strategy,
+        purchasePrice=full_extraction.purchase_price,
+        pricePerSf=full_extraction.price_per_sf,
+        replacementCostPerSf=full_extraction.replacement_cost_per_sf,
+        discountToReplacementPct=full_extraction.discount_to_replacement_pct,
         totalCapitalization=full_extraction.total_capitalization,
         equityRequired=full_extraction.equity_required,
         minimumInvestment=full_extraction.minimum_investment,
@@ -473,6 +540,9 @@ async def extract_document_full(
         majorTenants=major_tenants,
         marketAnalysis=market_analysis,
         annualProjections=annual_projections,
+        sponsorFees=sponsor_fees,
+        waterfallStructure=waterfall_structure,
+        reserves=reserves,
         confidenceScore=full_extraction.confidence_score,
         extractionNotes=full_extraction.extraction_notes,
         uploadId=upload_id,
@@ -503,30 +573,39 @@ async def extract_document_full(
 @router.post("/create-from-upload", response_model=DealMemoResponse, response_model_by_alias=False)
 async def create_deal_from_upload(
     upload_id: str = Form(...),
+    deal_type: str = Form("industrial", alias="dealType"),
     property_service: PropertyService = Depends(get_property_service),
 ) -> DealMemoResponse:
     """
     Extract deal data from uploaded document and create the deal in one step.
 
     This is the recommended endpoint for creating deals as it:
-    1. Extracts ALL data from the PDF (not just basic fields)
-    2. Creates the Property with all related tables populated:
+    1. Extracts ALL data from the PDF using asset-type-specific templates
+    2. Creates the Deal with all related tables populated:
        - InvestmentMetrics (IRR, cap rates, equity multiples)
        - Financing (loan amount, LTV, interest rate, terms)
-       - Tenants (rent roll data)
+       - Asset-specific details & tenants/unit mix
        - AnnualProjections (year-by-year financials)
        - MarketAnalysis (market data)
+       - SponsorFees & WaterfallStructure
+       - Reserves
        - PropertyDocument (document reference)
     3. Generates embeddings for semantic search/matching
 
     Requires uploadId from previous POST /upload.
+    Pass dealType to select the correct extraction template.
     """
     try:
-        property_obj = await property_service.extract_and_create_deal(upload_id)
+        property_obj = await property_service.extract_and_create_deal(upload_id, deal_type=deal_type)
         return _property_to_response(property_obj)
     except ValueError as e:
+        logger.error(f"Deal creation failed - document not found for upload_id={upload_id}: {e}", exc_info=True)
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.error(
+            f"Failed to create deal from upload_id={upload_id}, deal_type={deal_type}: {e}",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Failed to create deal from upload: {str(e)}",
@@ -553,27 +632,80 @@ def _property_to_response(deal: Property) -> DealMemoResponse:
     )
 
 
+def _model_to_dict(obj, exclude: set = None) -> dict:
+    """Convert a SQLAlchemy model instance to a camelCase dict for JSON serialization."""
+    if obj is None:
+        return None
+    exclude = exclude or {"id", "deal_id", "created_at", "updated_at"}
+    result = {}
+    for col in obj.__table__.columns:
+        if col.name in exclude:
+            continue
+        val = getattr(obj, col.name)
+        # Convert snake_case to camelCase
+        parts = col.name.split("_")
+        key = parts[0] + "".join(p.capitalize() for p in parts[1:])
+        # Convert Decimal/numeric types to float
+        if val is not None and hasattr(val, "__float__") and not isinstance(val, (int, float, bool)):
+            val = float(val)
+        result[key] = val
+    return result
+
+
+def _serialize_asset_details(deal: "Property") -> dict | None:
+    """Serialize asset-specific detail model to dict based on deal_type."""
+    detail_map = {
+        "industrial": "industrial_details",
+        "multifamily": "multifamily_details",
+        "retail": "retail_details",
+        "office": "office_details",
+        "self-storage": "self_storage_details",
+        "student-housing": "student_housing_details",
+        "hotel": "hotel_details",
+        "land": "land_details",
+        "mixed-use": "mixed_use_details",
+    }
+    attr = detail_map.get(deal.deal_type)
+    if attr:
+        obj = getattr(deal, attr, None)
+        if obj:
+            return _model_to_dict(obj)
+    return None
+
+
+def _serialize_asset_tenants(deal: "Property") -> list | None:
+    """Serialize asset-specific tenant/unit mix models to list of dicts."""
+    tenant_map = {
+        "industrial": "industrial_tenants",
+        "multifamily": "multifamily_unit_mix",
+        "retail": "retail_tenants",
+        "office": "office_tenants",
+        "self-storage": "self_storage_unit_mix",
+        "hotel": "hotel_room_mix",
+        "mixed-use": "mixed_use_components",
+    }
+    attr = tenant_map.get(deal.deal_type)
+    if attr:
+        items = getattr(deal, attr, None)
+        if items:
+            return [_model_to_dict(item) for item in items]
+    return None
+
+
 def _property_to_full_response(deal: Property) -> FullDealResponse:
-    """Convert Property model to full response schema with all related data."""
-    # Build property details from Property and PropertyFeature
+    """Convert Deal model to full response schema with all related data."""
+    # Build property details from Deal model fields
     property_details = None
     if deal.address or deal.city or deal.state or deal.zip_code or deal.square_feet:
-        year_built = None
-        year_renovated = None
-        parking_spaces = None
-        if deal.features:
-            year_built = deal.features.year_built
-            year_renovated = deal.features.year_renovated
-            parking_spaces = deal.features.parking_spaces
         property_details = PropertyDetailsResponse(
             address=deal.address,
             city=deal.city,
             state=deal.state,
             zipCode=deal.zip_code,
             totalSquareFeet=deal.square_feet,
-            yearBuilt=year_built,
-            yearRenovated=year_renovated,
-            parkingSpaces=parking_spaces,
+            yearBuilt=deal.year_built,
+            yearRenovated=deal.year_renovated,
+            parkingSpaces=deal.parking_spaces,
         )
 
     # Build investment metrics
@@ -588,6 +720,9 @@ def _property_to_full_response(deal: Property) -> FullDealResponse:
             capRateGoingIn=m.cap_rate_going_in,
             capRateExit=m.cap_rate_exit,
             preferredReturn=m.preferred_return,
+            returnFromCashFlowPct=m.return_from_cash_flow_pct,
+            returnFromSalePct=m.return_from_sale_pct,
+            returnProfile=m.return_profile,
         )
 
     # Build financing
@@ -604,20 +739,6 @@ def _property_to_full_response(deal: Property) -> FullDealResponse:
             loanType=f.loan_type,
         )
 
-    # Build tenants list
-    major_tenants = []
-    if deal.tenants:
-        major_tenants = [
-            TenantResponse(
-                tenantName=t.tenant_name,
-                squareFeet=t.square_feet,
-                annualRent=t.annual_rent,
-                leaseExpiration=t.lease_expiration,
-                tenantType=t.tenant_type,
-            )
-            for t in deal.tenants
-        ]
-
     # Build market analysis
     market_analysis = None
     if deal.market_analysis:
@@ -630,6 +751,9 @@ def _property_to_full_response(deal: Property) -> FullDealResponse:
             marketVacancyRate=ma.market_vacancy_rate,
             marketRentGrowth=ma.market_rent_growth,
             comparableSales=ma.comparable_sales,
+            newConstructionPct=ma.new_construction_pct,
+            absorptionRate=ma.absorption_rate,
+            landlordPricingPower=ma.landlord_pricing_power,
         )
 
     # Build annual projections
@@ -643,9 +767,56 @@ def _property_to_full_response(deal: Property) -> FullDealResponse:
                 operatingExpenses=p.operating_expenses,
                 noi=p.noi,
                 cashFlow=p.cash_flow,
+                cashOnCashReturn=p.cash_on_cash_return,
+                irrThroughYear=p.irr_through_year,
             )
             for p in deal.annual_projections
         ]
+
+    # Build sponsor fees
+    sponsor_fees = None
+    if deal.sponsor_fees:
+        sf = deal.sponsor_fees
+        sponsor_fees = SponsorFeesResponse(
+            acquisitionFeePct=sf.acquisition_fee_pct,
+            assetManagementFeePct=sf.asset_management_fee_pct,
+            propertyManagementFeePct=sf.property_management_fee_pct,
+            constructionSupervisionFeePct=sf.construction_supervision_fee_pct,
+            dispositionFeePct=sf.disposition_fee_pct,
+            guaranteeFeePct=sf.guarantee_fee_pct,
+        )
+
+    # Build waterfall structure
+    waterfall_structure = None
+    if deal.waterfall_structure:
+        ws = deal.waterfall_structure
+        waterfall_structure = WaterfallStructureResponse(
+            preferredReturnPct=ws.preferred_return_pct,
+            promoteTier1Pct=ws.promote_tier_1_pct,
+            promoteTier1Hurdle=ws.promote_tier_1_hurdle,
+            promoteTier2Pct=ws.promote_tier_2_pct,
+            promoteTier2Hurdle=ws.promote_tier_2_hurdle,
+            sponsorCoinvestPct=ws.sponsor_coinvest_pct,
+            sponsorCoinvestAmount=ws.sponsor_coinvest_amount,
+        )
+
+    # Build reserves
+    reserves = []
+    if deal.reserves:
+        reserves = [
+            ReserveResponse(
+                reserveType=r.reserve_type,
+                reserveAmount=r.reserve_amount,
+                reservePurpose=r.reserve_purpose,
+                releaseConditions=r.release_conditions,
+                lenderControlled=r.lender_controlled,
+            )
+            for r in deal.reserves
+        ]
+
+    # Build asset-specific data based on deal_type
+    asset_details = _serialize_asset_details(deal)
+    asset_tenants = _serialize_asset_tenants(deal)
 
     return FullDealResponse(
         id=str(deal.id),
@@ -663,6 +834,10 @@ def _property_to_full_response(deal: Property) -> FullDealResponse:
         createdAt=deal.created_at,
         updatedAt=deal.updated_at,
         valueAddStrategy=deal.value_add_strategy,
+        purchasePrice=float(deal.purchase_price) if deal.purchase_price else None,
+        pricePerSf=float(deal.price_per_sf) if deal.price_per_sf else None,
+        replacementCostPerSf=float(deal.replacement_cost_per_sf) if deal.replacement_cost_per_sf else None,
+        discountToReplacementPct=float(deal.discount_to_replacement_pct) if deal.discount_to_replacement_pct else None,
         totalCapitalization=float(deal.total_capitalization) if deal.total_capitalization else None,
         sponsorName=deal.sponsor_name,
         sponsorTrackRecord=deal.sponsor_track_record,
@@ -671,7 +846,11 @@ def _property_to_full_response(deal: Property) -> FullDealResponse:
         propertyDetails=property_details,
         investmentMetrics=investment_metrics,
         financing=financing,
-        majorTenants=major_tenants,
         marketAnalysis=market_analysis,
         annualProjections=annual_projections,
+        sponsorFees=sponsor_fees,
+        waterfallStructure=waterfall_structure,
+        reserves=reserves,
+        assetDetails=asset_details,
+        assetTenants=asset_tenants,
     )
