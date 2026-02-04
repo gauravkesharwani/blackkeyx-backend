@@ -517,6 +517,9 @@ class FullDealResponse(BaseModel):
     waterfallStructure: Optional[WaterfallStructureResponse] = Field(None, alias="waterfall_structure")
     reserves: List[ReserveResponse] = Field(default_factory=list)
 
+    # Generic major tenants (always populated from extraction)
+    majorTenants: List[TenantResponse] = Field(default_factory=list, alias="major_tenants")
+
     # Asset-specific data (populated based on dealType)
     assetDetails: Optional[dict] = Field(None, alias="asset_details")
     assetTenants: Optional[list] = Field(None, alias="asset_tenants")

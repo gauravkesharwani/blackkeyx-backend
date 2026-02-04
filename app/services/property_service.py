@@ -26,7 +26,7 @@ class PropertyService:
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ]
-    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+    MAX_FILE_SIZE = 30 * 1024 * 1024  # 30MB
 
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -108,6 +108,7 @@ class PropertyService:
         document_s3_key: Optional[str] = None,
         document_filename: Optional[str] = None,
         generate_embeddings: bool = True,
+        deal_type: Optional[str] = None,
     ) -> Property:
         """
         Create a new deal with all related data from extraction.
@@ -137,6 +138,7 @@ class PropertyService:
                 extraction=extraction,
                 document_s3_key=document_s3_key,
                 document_filename=document_filename,
+                deal_type=deal_type,
             )
         except Exception as e:
             logger.error(
@@ -525,6 +527,7 @@ class PropertyService:
             document_s3_key=permanent_s3_key,
             document_filename=filename,
             generate_embeddings=generate_embeddings,
+            deal_type=deal_type,
         )
 
         logger.info(

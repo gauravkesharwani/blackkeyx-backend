@@ -818,6 +818,18 @@ def _property_to_full_response(deal: Property) -> FullDealResponse:
     asset_details = _serialize_asset_details(deal)
     asset_tenants = _serialize_asset_tenants(deal)
 
+    # Build generic major tenants
+    major_tenants = [
+        TenantResponse(
+            tenantName=t.tenant_name,
+            squareFeet=t.square_feet,
+            annualRent=float(t.annual_rent) if t.annual_rent else None,
+            leaseExpiration=t.lease_expiration,
+            tenantType=t.tenant_type,
+        )
+        for t in (deal.major_tenants or [])
+    ]
+
     return FullDealResponse(
         id=str(deal.id),
         name=deal.name,
@@ -851,6 +863,7 @@ def _property_to_full_response(deal: Property) -> FullDealResponse:
         sponsorFees=sponsor_fees,
         waterfallStructure=waterfall_structure,
         reserves=reserves,
+        majorTenants=major_tenants,
         assetDetails=asset_details,
         assetTenants=asset_tenants,
     )

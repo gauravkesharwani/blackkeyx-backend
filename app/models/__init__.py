@@ -8,7 +8,7 @@ from app.models.financial import AnnualProjection, Financing, InvestmentMetrics
 from app.models.investor import InvestorPreferences, InvestorProfile
 from app.models.market import MarketAnalysis
 from app.models.matching import DealMatch
-from app.models.property import Deal, Property, PropertyDocument
+from app.models.property import Deal, MajorTenant, Property, PropertyDocument
 from app.models.voice import CallSession, CallTranscript
 
 # Asset type models
@@ -38,6 +38,7 @@ __all__ = [
     "InvestorProfile",
     "InvestorPreferences",
     "Deal",
+    "MajorTenant",
     "Property",
     "PropertyDocument",
     "InvestmentMetrics",
