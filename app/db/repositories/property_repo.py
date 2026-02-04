@@ -32,7 +32,7 @@ from app.models.asset_types import (
 from app.models.deal_structure import Reserve, SponsorFees, WaterfallStructure
 from app.models.financial import AnnualProjection, Financing, InvestmentMetrics
 from app.models.market import MarketAnalysis
-from app.models.property import Deal, PropertyDocument
+from app.models.property import Deal, MajorTenant, PropertyDocument
 from app.schemas.extraction import InvestorBriefExtraction
 
 # Backward compat alias
@@ -318,6 +318,18 @@ class PropertyRepository(BaseRepository[Deal]):
                 lender_controlled=r.lender_controlled,
             ))
 
+        # MajorTenants (generic tenant data from extraction)
+        for t in extraction.major_tenants:
+            self.session.add(MajorTenant(
+                id=uuid.uuid4(),
+                deal_id=deal_id,
+                tenant_name=t.tenant_name,
+                square_feet=t.square_feet,
+                annual_rent=t.annual_rent,
+                lease_expiration=t.lease_expiration,
+                tenant_type=t.tenant_type,
+            ))
+
         # === ASSET-SPECIFIC DATA ===
         self._save_asset_specific_data(deal_id, extraction)
 
@@ -558,6 +570,7 @@ class PropertyRepository(BaseRepository[Deal]):
                 selectinload(Deal.sponsor_fees),
                 selectinload(Deal.waterfall_structure),
                 selectinload(Deal.reserves),
+                selectinload(Deal.major_tenants),
             )
             .where(Deal.id == id)
         )

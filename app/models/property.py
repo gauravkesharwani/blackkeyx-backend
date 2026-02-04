@@ -30,6 +30,31 @@ if TYPE_CHECKING:
     from app.models.matching import DealMatch
 
 
+class MajorTenant(Base, UUIDMixin, TimestampMixin):
+    """
+    Generic major tenant extracted from deal documents.
+
+    Used as a fallback when asset-type-specific tenant tables are empty,
+    particularly for mixed-use deals where the extraction captures tenant
+    data generically rather than per-component.
+    """
+
+    __tablename__ = "major_tenants"
+
+    deal_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("deals.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tenant_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    square_feet: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    annual_rent: Mapped[Optional[float]] = mapped_column(Numeric(15, 2), nullable=True)
+    lease_expiration: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    tenant_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    deal: Mapped["Deal"] = relationship(back_populates="major_tenants")
+
+
 class Deal(Base, UUIDMixin, TimestampMixin):
     """
     Deal memo / property listing.
@@ -141,6 +166,13 @@ class Deal(Base, UUIDMixin, TimestampMixin):
         lazy="selectin",
     )
     reserves: Mapped[List["Reserve"]] = relationship(
+        back_populates="deal",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    # Generic major tenants (fallback for asset types without specific tenant tables)
+    major_tenants: Mapped[List["MajorTenant"]] = relationship(
         back_populates="deal",
         cascade="all, delete-orphan",
         lazy="selectin",

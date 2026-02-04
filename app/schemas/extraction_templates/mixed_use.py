@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.extraction import InvestorBriefExtraction
 
@@ -14,8 +14,22 @@ class MixedUseDetailsExtraction(BaseModel):
     retail_pct: Optional[float] = Field(None, description="Retail percentage of total")
     office_pct: Optional[float] = Field(None, description="Office percentage of total")
     residential_pct: Optional[float] = Field(None, description="Residential percentage of total")
-    parking_structure: Optional[str] = Field(None, description="Parking structure type")
+    parking_structure: Optional[bool] = Field(None, description="Whether property has a parking structure")
     shared_amenities: List[str] = Field(default_factory=list, description="Shared amenities")
+
+    @field_validator("parking_structure", mode="before")
+    @classmethod
+    def coerce_parking_structure(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            if v.strip().lower() in ("", "none", "null", "n/a", "no", "false"):
+                return False
+            return True
+        return bool(v)
+
     master_lease: Optional[bool] = Field(None, description="Whether property has a master lease")
     ground_floor_use: Optional[str] = Field(None, description="Ground floor use type")
     synergy_description: Optional[str] = Field(None, description="Description of component synergies")
