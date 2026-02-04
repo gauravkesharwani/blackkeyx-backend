@@ -133,6 +133,7 @@ class PropertyRepository(BaseRepository[Deal]):
         extraction: InvestorBriefExtraction,
         document_s3_key: Optional[str] = None,
         document_filename: Optional[str] = None,
+        deal_type: Optional[str] = None,
     ) -> Deal:
         """
         Create a deal with all related data from extraction.
@@ -167,7 +168,7 @@ class PropertyRepository(BaseRepository[Deal]):
         deal = Deal(
             id=deal_id,
             name=extraction.deal_name,
-            deal_type=extraction.property_type,
+            deal_type=deal_type or extraction.property_type,
             summary=extraction.executive_summary,
             thesis=extraction.investment_thesis,
             minimum_investment=extraction.minimum_investment,
