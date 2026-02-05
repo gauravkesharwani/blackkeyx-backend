@@ -69,6 +69,12 @@ class ExtractedInvestorPreferences(BaseModel):
         default_factory=list,
         description="Deal structures mentioned: LP, GP, JV, REIT, DST",
     )
+    target_irr_min: Optional[float] = Field(
+        None, description="Minimum target IRR percentage (e.g., 12.0 for 12%)"
+    )
+    target_irr_max: Optional[float] = Field(
+        None, description="Maximum target IRR percentage (e.g., 18.0 for 18%)"
+    )
 
 
 class TranscriptInsightExtraction(BaseModel):

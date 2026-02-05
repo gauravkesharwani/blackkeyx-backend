@@ -3,18 +3,37 @@ Semantic Matching - Layer 3 of the matching engine.
 
 Uses vector embeddings and cosine similarity to find semantic
 alignment between investor profiles and deal descriptions.
+Implements weighted section-to-section matching for precise scoring.
 """
 
 import logging
 import uuid
-from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.embeddings import InvestorEmbedding, PropertyEmbedding
 from app.services.embedding_service import EmbeddingService
 
 logger = logging.getLogger(__name__)
+
+# Weighted section pairs: (investor_section, property_section) -> weight
+# Weights sum to 1.0
+SECTION_WEIGHTS: Dict[Tuple[str, str], float] = {
+    ("investment_thesis", "investment_thesis"): 0.20,
+    ("investment_thesis", "executive_summary"): 0.10,
+    ("investment_criteria", "investment_terms"): 0.15,
+    ("investment_criteria", "property_overview"): 0.05,
+    ("return_profile", "financials"): 0.20,
+    ("return_profile", "cash_flow_projection"): 0.05,
+    ("specific_concerns", "risk_factors"): 0.10,
+    ("call_insights", "executive_summary"): 0.05,
+    ("full_profile", "deal_structure"): 0.05,
+    ("full_profile", "sponsor_profile"): 0.05,
+}
 
 
 @dataclass
@@ -23,7 +42,19 @@ class SemanticMatchResult:
 
     score: float  # 0-100 (normalized from cosine similarity)
     raw_similarity: float  # Raw cosine similarity 0-1
-    matched_sections: List[Tuple[str, float]]  # Section type and its similarity
+    matched_sections: List[Tuple[str, float]] = field(default_factory=list)
+
+
+def _cosine_similarity(a: list, b: list) -> float:
+    """Compute cosine similarity between two vectors."""
+    a_arr = np.array(a, dtype=np.float32)
+    b_arr = np.array(b, dtype=np.float32)
+    dot = np.dot(a_arr, b_arr)
+    norm_a = np.linalg.norm(a_arr)
+    norm_b = np.linalg.norm(b_arr)
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(dot / (norm_a * norm_b))
 
 
 class SemanticMatcher:
@@ -32,12 +63,35 @@ class SemanticMatcher:
 
     This layer:
     1. Retrieves embeddings for both investor and property
-    2. Computes cosine similarity between relevant sections
+    2. Computes weighted cosine similarity between relevant section pairs
     3. Returns a normalized score (0-100) based on semantic alignment
     """
 
     def __init__(self, session: AsyncSession):
+        self.session = session
         self.embedding_service = EmbeddingService(session)
+
+    async def _load_embeddings_by_section(
+        self,
+        table: str,
+        id_column: str,
+        entity_id: uuid.UUID,
+    ) -> Dict[str, list]:
+        """Load all embeddings for an entity, keyed by section_type."""
+        if table == "investor_embeddings":
+            result = await self.session.execute(
+                select(InvestorEmbedding).where(
+                    InvestorEmbedding.investor_id == entity_id
+                )
+            )
+        else:
+            result = await self.session.execute(
+                select(PropertyEmbedding).where(
+                    PropertyEmbedding.property_id == entity_id
+                )
+            )
+        embeddings = result.scalars().all()
+        return {e.section_type: e.embedding for e in embeddings}
 
     async def compute_semantic_score(
         self,
@@ -45,7 +99,8 @@ class SemanticMatcher:
         property_id: uuid.UUID,
     ) -> SemanticMatchResult:
         """
-        Compute semantic similarity between investor and property.
+        Compute semantic similarity between investor and property
+        using weighted section-to-section comparisons.
 
         Args:
             investor_id: UUID of the investor
@@ -55,34 +110,47 @@ class SemanticMatcher:
             SemanticMatchResult with normalized score and details
         """
         try:
-            # Find similar properties for this investor
-            similar_properties = await self.embedding_service.find_similar_properties(
-                investor_id=investor_id,
-                limit=100,  # Get more to find specific property
+            # Load all embeddings for both entities
+            investor_embeddings = await self._load_embeddings_by_section(
+                "investor_embeddings", "investor_id", investor_id
+            )
+            property_embeddings = await self._load_embeddings_by_section(
+                "property_embeddings", "property_id", property_id
             )
 
-            # Find the specific property's similarity
-            property_similarity = 0.0
-            for pid, similarity in similar_properties:
-                if pid == property_id:
-                    property_similarity = similarity
-                    break
+            if not investor_embeddings or not property_embeddings:
+                # Fallback: use the old full_profile approach
+                return await self._fallback_similarity(investor_id, property_id)
 
-            # If property not found in similar results, compute directly
-            if property_similarity == 0.0:
-                property_similarity = await self._compute_direct_similarity(
-                    investor_id, property_id
-                )
+            weighted_sum = 0.0
+            total_weight = 0.0
+            matched_sections = []
 
-            # Normalize to 0-100 scale
-            # Cosine similarity typically ranges 0-1 for positive embeddings
-            # We scale it to 0-100 with a slight boost for high similarities
-            normalized_score = min(100.0, property_similarity * 100)
+            for (inv_section, prop_section), weight in SECTION_WEIGHTS.items():
+                inv_emb = investor_embeddings.get(inv_section)
+                prop_emb = property_embeddings.get(prop_section)
+
+                if inv_emb is not None and prop_emb is not None:
+                    sim = _cosine_similarity(inv_emb, prop_emb)
+                    weighted_sum += sim * weight
+                    total_weight += weight
+                    matched_sections.append(
+                        (f"{inv_section}->{prop_section}", sim)
+                    )
+
+            if total_weight > 0:
+                # Re-normalize weights to account for missing sections
+                raw_similarity = weighted_sum / total_weight
+            else:
+                # No section pairs matched at all — fall back
+                return await self._fallback_similarity(investor_id, property_id)
+
+            normalized_score = min(100.0, raw_similarity * 100)
 
             return SemanticMatchResult(
                 score=normalized_score,
-                raw_similarity=property_similarity,
-                matched_sections=[],  # Simplified - could expand to show section matches
+                raw_similarity=raw_similarity,
+                matched_sections=matched_sections,
             )
 
         except Exception as e:
@@ -91,36 +159,57 @@ class SemanticMatcher:
                 f"and property {property_id}: {e}"
             )
             return SemanticMatchResult(
-                score=50.0,  # Neutral score on error
+                score=50.0,
                 raw_similarity=0.5,
                 matched_sections=[],
             )
 
-    async def _compute_direct_similarity(
+    async def _fallback_similarity(
         self,
         investor_id: uuid.UUID,
         property_id: uuid.UUID,
-    ) -> float:
+    ) -> SemanticMatchResult:
         """
-        Compute similarity directly between investor and property embeddings.
-
-        Used when the property isn't in the top similar results.
-
-        Args:
-            investor_id: UUID of the investor
-            property_id: UUID of the property
-
-        Returns:
-            Cosine similarity score (0-1)
+        Fallback: compute similarity using full_profile vs all property sections averaged.
+        Used when specific section pairs are not available.
         """
         try:
-            # This would require additional database queries to fetch
-            # both embeddings and compute similarity
-            # For now, return a neutral score
-            return 0.5
+            result = await self.session.execute(
+                select(InvestorEmbedding).where(
+                    InvestorEmbedding.investor_id == investor_id,
+                    InvestorEmbedding.section_type == "full_profile",
+                )
+            )
+            investor_emb = result.scalar_one_or_none()
+
+            if not investor_emb:
+                return SemanticMatchResult(score=50.0, raw_similarity=0.5, matched_sections=[])
+
+            prop_result = await self.session.execute(
+                select(PropertyEmbedding).where(
+                    PropertyEmbedding.property_id == property_id
+                )
+            )
+            property_embs = prop_result.scalars().all()
+
+            if not property_embs:
+                return SemanticMatchResult(score=50.0, raw_similarity=0.5, matched_sections=[])
+
+            similarities = []
+            for pe in property_embs:
+                sim = _cosine_similarity(investor_emb.embedding, pe.embedding)
+                similarities.append(sim)
+
+            avg_sim = sum(similarities) / len(similarities)
+
+            return SemanticMatchResult(
+                score=min(100.0, avg_sim * 100),
+                raw_similarity=avg_sim,
+                matched_sections=[("full_profile->avg_all", avg_sim)],
+            )
 
         except Exception:
-            return 0.5
+            return SemanticMatchResult(score=50.0, raw_similarity=0.5, matched_sections=[])
 
     async def batch_compute(
         self,
@@ -137,24 +226,60 @@ class SemanticMatcher:
         Returns:
             List of (property_id, SemanticMatchResult) tuples
         """
-        # Get all similar properties at once
-        similar_properties = await self.embedding_service.find_similar_properties(
-            investor_id=investor_id,
-            limit=1000,  # Get many to cover requested properties
+        # Load investor embeddings once
+        investor_embeddings = await self._load_embeddings_by_section(
+            "investor_embeddings", "investor_id", investor_id
         )
-
-        # Build lookup map
-        similarity_map = {pid: sim for pid, sim in similar_properties}
 
         results = []
         for property_id in property_ids:
-            similarity = similarity_map.get(property_id, 0.5)
-            result = SemanticMatchResult(
-                score=min(100.0, similarity * 100),
-                raw_similarity=similarity,
-                matched_sections=[],
+            if not investor_embeddings:
+                results.append((
+                    property_id,
+                    SemanticMatchResult(score=50.0, raw_similarity=0.5, matched_sections=[]),
+                ))
+                continue
+
+            property_embeddings = await self._load_embeddings_by_section(
+                "property_embeddings", "property_id", property_id
             )
-            results.append((property_id, result))
+
+            if not property_embeddings:
+                results.append((
+                    property_id,
+                    SemanticMatchResult(score=50.0, raw_similarity=0.5, matched_sections=[]),
+                ))
+                continue
+
+            weighted_sum = 0.0
+            total_weight = 0.0
+            matched_sections = []
+
+            for (inv_section, prop_section), weight in SECTION_WEIGHTS.items():
+                inv_emb = investor_embeddings.get(inv_section)
+                prop_emb = property_embeddings.get(prop_section)
+
+                if inv_emb is not None and prop_emb is not None:
+                    sim = _cosine_similarity(inv_emb, prop_emb)
+                    weighted_sum += sim * weight
+                    total_weight += weight
+                    matched_sections.append(
+                        (f"{inv_section}->{prop_section}", sim)
+                    )
+
+            if total_weight > 0:
+                raw_similarity = weighted_sum / total_weight
+            else:
+                raw_similarity = 0.5
+
+            results.append((
+                property_id,
+                SemanticMatchResult(
+                    score=min(100.0, raw_similarity * 100),
+                    raw_similarity=raw_similarity,
+                    matched_sections=matched_sections,
+                ),
+            ))
 
         return results
 
@@ -175,21 +300,22 @@ class SemanticMatcher:
         Returns:
             List of (property_id, SemanticMatchResult) tuples sorted by score
         """
-        min_similarity = min_score / 100.0
-
-        similar_properties = await self.embedding_service.find_similar_properties(
-            investor_id=investor_id,
-            limit=limit,
+        # Get all property IDs that have embeddings
+        result = await self.session.execute(
+            text("SELECT DISTINCT property_id FROM property_embeddings")
         )
+        all_property_ids = [row[0] for row in result.fetchall()]
 
-        results = []
-        for property_id, similarity in similar_properties:
-            if similarity >= min_similarity:
-                result = SemanticMatchResult(
-                    score=min(100.0, similarity * 100),
-                    raw_similarity=similarity,
-                    matched_sections=[],
-                )
-                results.append((property_id, result))
+        if not all_property_ids:
+            return []
 
-        return results
+        # Compute scores for all
+        all_results = await self.batch_compute(investor_id, all_property_ids)
+
+        # Filter by min_score and sort
+        filtered = [
+            (pid, res) for pid, res in all_results if res.score >= min_score
+        ]
+        filtered.sort(key=lambda x: x[1].score, reverse=True)
+
+        return filtered[:limit]

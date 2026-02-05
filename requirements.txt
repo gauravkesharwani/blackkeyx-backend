@@ -24,3 +24,4 @@ livekit-api
 
 # Utilities
 dateparser
+numpy

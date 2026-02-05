@@ -36,6 +36,9 @@ The call is designed to qualify investors and understand their:
 6. Past CRE investment experience
 7. Capital available for investment
 8. Investment timeline
+9. Target return expectations (specific IRR range, equity multiple, or return descriptors)
+10. Deal structure preferences (LP, JV, co-GP, REIT, DST)
+11. Markets or regions to avoid
 
 EXTRACTION RULES:
 - Only extract information that was explicitly stated or strongly implied by the investor
@@ -48,6 +51,11 @@ EXTRACTION RULES:
   - "I've done a few deals" -> investment_experience: "some_experience"
   - "I'm pretty conservative" -> risk_tolerance: "conservative"
   - "I like value-add deals" -> investment_strategy: "value_add"
+  - "I'm looking for mid-teens returns" -> target_irr_min: 13, target_irr_max: 17
+  - "double digit returns" -> target_irr_min: 10, target_irr_max: null
+  - "I want something safe, maybe 8-10%" -> target_irr_min: 8, target_irr_max: 10
+  - "I prefer LP positions" -> preferred_structures: ["LP"]
+  - "I like to co-invest with the sponsor" -> preferred_structures: ["co-GP", "JV"]
 
 PROPERTY TYPES (use these exact values):
 - industrial
@@ -159,23 +167,26 @@ class InsightExtractionService:
         await self.session.flush()
 
         # Regenerate investor embeddings with updated profile data
-        if (
-            investor.investment_thesis
-            or investor.investment_preferences
-            or investor.risk_tolerance
-        ):
-            try:
-                embedding_service = EmbeddingService(self.session)
-                await embedding_service.create_investor_profile_embedding(
-                    investor_id=investor_id,
-                    investment_thesis=investor.investment_thesis,
-                    investment_preferences=investor.investment_preferences,
-                    risk_tolerance=investor.risk_tolerance,
+        try:
+            # Load preferences for rich embedding
+            prefs_result = await self.session.execute(
+                select(InvestorPreferences).where(
+                    InvestorPreferences.investor_id == investor_id
                 )
-                logger.info(f"Regenerated embeddings for investor {investor_id}")
-            except Exception as e:
-                logger.warning(f"Failed to regenerate investor embeddings: {e}")
-                # Don't fail the extraction if embeddings fail
+            )
+            prefs = prefs_result.scalar_one_or_none()
+
+            embedding_service = EmbeddingService(self.session)
+            await embedding_service.create_investor_profile_embedding(
+                investor_id=investor_id,
+                investor=investor,
+                preferences=prefs,
+                call_summary=extraction.call_summary,
+            )
+            logger.info(f"Regenerated embeddings for investor {investor_id}")
+        except Exception as e:
+            logger.warning(f"Failed to regenerate investor embeddings: {e}")
+            # Don't fail the extraction if embeddings fail
 
         return True
 
@@ -228,6 +239,10 @@ class InsightExtractionService:
                 existing.hold_period_max = prefs.hold_period_max
             if prefs.investment_experience and not existing.investment_experience:
                 existing.investment_experience = prefs.investment_experience
+            if prefs.target_irr_min and not existing.target_irr_min:
+                existing.target_irr_min = prefs.target_irr_min
+            if prefs.target_irr_max and not existing.target_irr_max:
+                existing.target_irr_max = prefs.target_irr_max
             if prefs.specific_concerns:
                 # Append to existing concerns
                 if existing.specific_concerns:
@@ -251,6 +266,8 @@ class InsightExtractionService:
                 investment_experience=prefs.investment_experience,
                 specific_concerns=prefs.specific_concerns,
                 preferred_structures=prefs.preferred_structures or [],
+                target_irr_min=prefs.target_irr_min,
+                target_irr_max=prefs.target_irr_max,
             )
             self.session.add(new_prefs)
 

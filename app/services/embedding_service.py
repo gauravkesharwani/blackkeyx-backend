@@ -10,7 +10,7 @@ This service handles:
 
 import logging
 import uuid
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from openai import AsyncOpenAI
 from sqlalchemy import select, text
@@ -19,6 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models.embeddings import InvestorEmbedding, PropertyEmbedding
 from app.schemas.extraction import InvestorBriefExtraction
+
+if TYPE_CHECKING:
+    from app.models.investor import InvestorPreferences, InvestorProfile
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -38,13 +41,18 @@ PROPERTY_SECTION_TYPES = [
     "financials",
     "property_overview",
     "investment_terms",
+    "sponsor_profile",
+    "deal_structure",
+    "cash_flow_projection",
 ]
 
 # Section types for investor embeddings
 INVESTOR_SECTION_TYPES = [
     "investment_thesis",
-    "investment_preferences",
-    "risk_profile",
+    "investment_criteria",
+    "return_profile",
+    "specific_concerns",
+    "call_insights",
     "full_profile",
 ]
 
@@ -130,6 +138,14 @@ class EmbeddingService:
                 market_parts.append(f"Rent Growth: {market.market_rent_growth}")
             if market.comparable_sales:
                 market_parts.append(f"Comparable Sales: {market.comparable_sales}")
+            if market.market_vacancy_rate:
+                market_parts.append(f"Vacancy Rate: {market.market_vacancy_rate}%")
+            if market.new_construction_pct:
+                market_parts.append(f"New Construction: {market.new_construction_pct}% of inventory")
+            if market.absorption_rate:
+                market_parts.append(f"Absorption Rate: {market.absorption_rate}")
+            if market.landlord_pricing_power:
+                market_parts.append(f"Landlord Pricing Power: {market.landlord_pricing_power}")
             if market_parts:
                 sections["market_analysis"] = "\n".join(market_parts)
 
@@ -174,6 +190,17 @@ class EmbeddingService:
                     f"Preferred Return: {metrics.preferred_return}%"
                 )
 
+            if metrics.cap_rate_exit:
+                financial_parts.append(f"Exit Cap Rate: {metrics.cap_rate_exit}%")
+            if metrics.target_cash_on_cash:
+                financial_parts.append(f"Cash-on-Cash: {metrics.target_cash_on_cash}%")
+            if metrics.return_from_cash_flow_pct:
+                financial_parts.append(f"Return from Cash Flow: {metrics.return_from_cash_flow_pct}%")
+            if metrics.return_from_sale_pct:
+                financial_parts.append(f"Return from Sale: {metrics.return_from_sale_pct}%")
+            if metrics.return_profile:
+                financial_parts.append(f"Return Profile: {metrics.return_profile}")
+
         if extraction.financing:
             fin = extraction.financing
             if fin.loan_amount:
@@ -198,6 +225,10 @@ class EmbeddingService:
                 prop_parts.append(f"Square Feet: {prop.total_square_feet:,}")
             if prop.year_built:
                 prop_parts.append(f"Year Built: {prop.year_built}")
+            if prop.year_renovated:
+                prop_parts.append(f"Year Renovated: {prop.year_renovated}")
+            if prop.parking_spaces:
+                prop_parts.append(f"Parking: {prop.parking_spaces} spaces")
             if prop_parts:
                 sections["property_overview"] = "\n".join(prop_parts)
 
@@ -217,6 +248,56 @@ class EmbeddingService:
             terms_parts.append(f"Ideal Investor: {extraction.ideal_investor_profile}")
         if terms_parts:
             sections["investment_terms"] = "\n".join(terms_parts)
+
+        # Sponsor profile (new)
+        sponsor_parts = []
+        if extraction.sponsor_name:
+            sponsor_parts.append(f"Sponsor: {extraction.sponsor_name}")
+        if extraction.sponsor_track_record:
+            sponsor_parts.append(f"Track Record: {extraction.sponsor_track_record}")
+        if sponsor_parts:
+            sections["sponsor_profile"] = "\n".join(sponsor_parts)
+
+        # Deal structure (new)
+        structure_parts = []
+        if extraction.waterfall_structure:
+            ws = extraction.waterfall_structure
+            if ws.preferred_return_pct:
+                structure_parts.append(f"Preferred Return: {ws.preferred_return_pct}%")
+            if ws.promote_tier_1_pct and ws.promote_tier_1_hurdle:
+                structure_parts.append(f"Promote Tier 1: {ws.promote_tier_1_pct}% above {ws.promote_tier_1_hurdle}% IRR")
+            if ws.promote_tier_2_pct and ws.promote_tier_2_hurdle:
+                structure_parts.append(f"Promote Tier 2: {ws.promote_tier_2_pct}% above {ws.promote_tier_2_hurdle}% IRR")
+            if ws.sponsor_coinvest_pct:
+                structure_parts.append(f"Sponsor Co-invest: {ws.sponsor_coinvest_pct}%")
+        if extraction.sponsor_fees:
+            fees = extraction.sponsor_fees
+            fee_items = []
+            if fees.acquisition_fee_pct:
+                fee_items.append(f"Acquisition: {fees.acquisition_fee_pct}%")
+            if fees.asset_management_fee_pct:
+                fee_items.append(f"Asset Mgmt: {fees.asset_management_fee_pct}%")
+            if fees.disposition_fee_pct:
+                fee_items.append(f"Disposition: {fees.disposition_fee_pct}%")
+            if fee_items:
+                structure_parts.append(f"Fees: {', '.join(fee_items)}")
+        if structure_parts:
+            sections["deal_structure"] = "\n".join(structure_parts)
+
+        # Cash flow projection (new)
+        if extraction.annual_projections:
+            proj_parts = []
+            for proj in extraction.annual_projections[:5]:  # First 5 years
+                parts = [f"Year {proj.year}:"]
+                if proj.noi:
+                    parts.append(f"NOI ${proj.noi:,.0f}")
+                if proj.cash_on_cash_return:
+                    parts.append(f"CoC {proj.cash_on_cash_return}%")
+                if proj.irr_through_year:
+                    parts.append(f"IRR {proj.irr_through_year}%")
+                proj_parts.append(" | ".join(parts))
+            if proj_parts:
+                sections["cash_flow_projection"] = "\n".join(proj_parts)
 
         return sections
 
@@ -280,18 +361,18 @@ class EmbeddingService:
     async def create_investor_profile_embedding(
         self,
         investor_id: uuid.UUID,
-        investment_thesis: Optional[str] = None,
-        investment_preferences: Optional[List[str]] = None,
-        risk_tolerance: Optional[str] = None,
+        investor: "InvestorProfile",
+        preferences: Optional["InvestorPreferences"] = None,
+        call_summary: Optional[str] = None,
     ) -> List[InvestorEmbedding]:
         """
         Generate and store embeddings for an investor profile.
 
         Args:
             investor_id: UUID of the investor
-            investment_thesis: Investor's investment thesis text
-            investment_preferences: List of investment preferences
-            risk_tolerance: Risk tolerance level
+            investor: Full InvestorProfile model
+            preferences: Optional InvestorPreferences model
+            call_summary: Optional call summary from extraction
 
         Returns:
             List of created InvestorEmbedding objects
@@ -306,29 +387,60 @@ class EmbeddingService:
         embeddings = []
         sections = {}
 
-        # Investment thesis
-        if investment_thesis:
-            sections["investment_thesis"] = investment_thesis
+        # 1. Investment thesis (narrative)
+        if investor.investment_thesis:
+            sections["investment_thesis"] = investor.investment_thesis
 
-        # Investment preferences
-        if investment_preferences:
-            sections["investment_preferences"] = ", ".join(investment_preferences)
+        # 2. Investment criteria (structured -> text)
+        criteria_parts = []
+        if preferences:
+            if preferences.property_types:
+                criteria_parts.append(f"Property types: {', '.join(preferences.property_types)}")
+            if preferences.preferred_markets:
+                criteria_parts.append(f"Preferred markets: {', '.join(preferences.preferred_markets)}")
+            if preferences.excluded_markets:
+                criteria_parts.append(f"Markets to avoid: {', '.join(preferences.excluded_markets)}")
+            if preferences.investment_strategy:
+                criteria_parts.append(f"Strategy: {preferences.investment_strategy}")
+            if preferences.preferred_structures:
+                criteria_parts.append(f"Structures: {', '.join(preferences.preferred_structures)}")
+            if preferences.hold_period_min or preferences.hold_period_max:
+                hold = f"{preferences.hold_period_min or '?'}-{preferences.hold_period_max or '?'} years"
+                criteria_parts.append(f"Hold period: {hold}")
+        elif investor.investment_preferences:
+            criteria_parts.append(f"Property types: {', '.join(investor.investment_preferences)}")
+        if criteria_parts:
+            sections["investment_criteria"] = "\n".join(criteria_parts)
 
-        # Risk profile
-        if risk_tolerance:
-            sections["risk_profile"] = f"Risk Tolerance: {risk_tolerance}"
+        # 3. Return profile (structured -> text)
+        return_parts = []
+        if preferences:
+            if preferences.target_irr_min or preferences.target_irr_max:
+                irr = f"{preferences.target_irr_min or '?'}-{preferences.target_irr_max or '?'}%"
+                return_parts.append(f"Target IRR: {irr}")
+            if preferences.risk_tolerance_level:
+                return_parts.append(f"Risk tolerance: {preferences.risk_tolerance_level}")
+        elif investor.risk_tolerance:
+            return_parts.append(f"Risk tolerance: {investor.risk_tolerance}")
+        if investor.capital_available:
+            return_parts.append(f"Capital available: ${investor.capital_available:,}")
+        if preferences and preferences.investment_experience:
+            return_parts.append(f"Experience: {preferences.investment_experience}")
+        if return_parts:
+            sections["return_profile"] = "\n".join(return_parts)
 
-        # Full profile (concatenated)
-        full_profile_parts = []
-        if investment_thesis:
-            full_profile_parts.append(f"Thesis: {investment_thesis}")
-        if investment_preferences:
-            full_profile_parts.append(f"Preferences: {', '.join(investment_preferences)}")
-        if risk_tolerance:
-            full_profile_parts.append(f"Risk Tolerance: {risk_tolerance}")
+        # 4. Specific concerns (narrative)
+        if preferences and preferences.specific_concerns:
+            sections["specific_concerns"] = preferences.specific_concerns
 
-        if full_profile_parts:
-            sections["full_profile"] = "\n".join(full_profile_parts)
+        # 5. Call insights (narrative)
+        if call_summary:
+            sections["call_insights"] = call_summary
+
+        # 6. Full profile (composite)
+        all_parts = [v for v in sections.values()]
+        if all_parts:
+            sections["full_profile"] = "\n\n".join(all_parts)
 
         # Generate embeddings for each section
         for section_type, content in sections.items():
