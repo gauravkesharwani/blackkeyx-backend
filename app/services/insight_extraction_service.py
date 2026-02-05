@@ -4,6 +4,7 @@ Uses OpenAI Responses API with structured outputs to extract
 investor profile and preferences data from call transcripts.
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime
@@ -184,6 +185,10 @@ class InsightExtractionService:
                 call_summary=extraction.call_summary,
             )
             logger.info(f"Regenerated embeddings for investor {investor_id}")
+
+            # Trigger matching in background after embeddings are regenerated
+            from app.services.matching_service import run_matching_background
+            asyncio.create_task(run_matching_background(investor_id=investor_id))
         except Exception as e:
             logger.warning(f"Failed to regenerate investor embeddings: {e}")
             # Don't fail the extraction if embeddings fail
