@@ -13,8 +13,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.db.session import get_db
 from app.models.matching import DealMatch
@@ -46,6 +47,9 @@ class MatchResponse(BaseModel):
     id: str
     investorId: str = Field(..., alias="investor_id")
     propertyId: str = Field(..., alias="property_id")
+    investorName: Optional[str] = Field(None, alias="investor_name")
+    investorPhone: Optional[str] = Field(None, alias="investor_phone")
+    dealName: Optional[str] = Field(None, alias="deal_name")
     finalScore: float = Field(..., alias="final_score")
     softScore: Optional[float] = Field(None, alias="soft_score")
     semanticScore: Optional[float] = Field(None, alias="semantic_score")
@@ -108,7 +112,11 @@ async def get_investor_matches(
     Returns deals that have been matched to this investor,
     sorted by final score descending.
     """
-    query = select(DealMatch).where(DealMatch.investor_id == investor_id)
+    query = (
+        select(DealMatch)
+        .where(DealMatch.investor_id == investor_id)
+        .options(selectinload(DealMatch.matched_property))
+    )
 
     if status:
         query = query.where(DealMatch.status == status)
@@ -127,6 +135,7 @@ async def get_investor_matches(
                 id=str(m.id),
                 investor_id=str(m.investor_id),
                 property_id=str(m.property_id),
+                deal_name=m.matched_property.name if m.matched_property else None,
                 final_score=float(m.final_score or m.similarity_score * 100),
                 soft_score=float(m.soft_score) if m.soft_score else None,
                 semantic_score=float(m.semantic_score) if m.semantic_score else None,
@@ -156,7 +165,11 @@ async def get_property_matches(
     Returns investors that have been matched to this property,
     sorted by final score descending.
     """
-    query = select(DealMatch).where(DealMatch.property_id == property_id)
+    query = (
+        select(DealMatch)
+        .where(DealMatch.property_id == property_id)
+        .options(selectinload(DealMatch.investor))
+    )
 
     if status:
         query = query.where(DealMatch.status == status)
@@ -175,6 +188,8 @@ async def get_property_matches(
                 id=str(m.id),
                 investor_id=str(m.investor_id),
                 property_id=str(m.property_id),
+                investor_name=m.investor.name if m.investor else None,
+                investor_phone=m.investor.phone if m.investor else None,
                 final_score=float(m.final_score or m.similarity_score * 100),
                 soft_score=float(m.soft_score) if m.soft_score else None,
                 semantic_score=float(m.semantic_score) if m.semantic_score else None,
@@ -187,6 +202,69 @@ async def get_property_matches(
             for m in matches
         ],
         total=len(matches),
+    )
+
+
+@router.get("/all", response_model=MatchListResponse)
+async def get_all_matches(
+    status: Optional[str] = Query(None, description="Filter by status"),
+    min_score: float = Query(0.0, description="Minimum score filter"),
+    limit: int = Query(100, le=200, description="Maximum results"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Get all matches across the platform.
+
+    Returns matches with both investor and deal details loaded,
+    sorted by final score descending. Used by the admin matches dashboard.
+    """
+    query = select(DealMatch).options(
+        selectinload(DealMatch.investor),
+        selectinload(DealMatch.matched_property),
+    )
+
+    if status:
+        query = query.where(DealMatch.status == status)
+
+    if min_score > 0:
+        query = query.where(DealMatch.final_score >= min_score)
+
+    query = query.order_by(DealMatch.final_score.desc()).offset(offset).limit(limit)
+
+    result = await session.execute(query)
+    matches = result.scalars().all()
+
+    # Get total count
+    count_query = select(func.count()).select_from(DealMatch)
+    if status:
+        count_query = count_query.where(DealMatch.status == status)
+    if min_score > 0:
+        count_query = count_query.where(DealMatch.final_score >= min_score)
+    total_result = await session.execute(count_query)
+    total = total_result.scalar_one()
+
+    return MatchListResponse(
+        matches=[
+            MatchResponse(
+                id=str(m.id),
+                investor_id=str(m.investor_id),
+                property_id=str(m.property_id),
+                investor_name=m.investor.name if m.investor else None,
+                investor_phone=m.investor.phone if m.investor else None,
+                deal_name=m.matched_property.name if m.matched_property else None,
+                final_score=float(m.final_score or m.similarity_score * 100),
+                soft_score=float(m.soft_score) if m.soft_score else None,
+                semantic_score=float(m.semantic_score) if m.semantic_score else None,
+                match_reasons=m.match_reasons or [],
+                concerns=m.concerns or [],
+                score_breakdown=m.score_breakdown,
+                status=m.status,
+                created_at=m.created_at.isoformat(),
+            )
+            for m in matches
+        ],
+        total=total,
     )
 
 
