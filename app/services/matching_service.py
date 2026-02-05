@@ -9,6 +9,7 @@ This service orchestrates the full matching pipeline:
 Final Score = soft_score * 0.7 + semantic_score * 0.3
 """
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -400,3 +401,29 @@ class MatchingService:
             )
         )
         return result.scalar_one_or_none()
+
+
+async def run_matching_background(
+    investor_id: Optional[uuid.UUID] = None,
+    property_id: Optional[uuid.UUID] = None,
+) -> None:
+    """Background task to run matching. Creates its own DB session.
+
+    Follows the same fire-and-forget pattern as voice_service._extract_insights_background.
+    """
+    try:
+        from app.db.session import async_session_factory
+
+        async with async_session_factory() as session:
+            service = MatchingService(session)
+            if investor_id:
+                await service.match_investor_to_properties(
+                    investor_id=investor_id, save_matches=True,
+                )
+            elif property_id:
+                await service.match_property_to_investors(
+                    property_id=property_id, save_matches=True,
+                )
+            await session.commit()
+    except Exception as e:
+        logger.error(f"Background matching failed: {e}")

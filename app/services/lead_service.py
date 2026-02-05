@@ -1,5 +1,6 @@
 """Lead service for lead submission operations."""
 
+import asyncio
 import logging
 import re
 import uuid
@@ -11,6 +12,7 @@ from app.db.repositories.investor_repo import InvestorRepository
 from app.models.consent import StageHistory
 from app.models.investor import InvestorProfile
 from app.services.embedding_service import EmbeddingService
+from app.services.matching_service import run_matching_background
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +158,8 @@ class LeadService:
                     investor=investor,
                     preferences=None,  # No preferences yet at lead submission
                 )
+                # Trigger matching in background after embeddings are created
+                asyncio.create_task(run_matching_background(investor_id=investor.id))
             except Exception as e:
                 logger.warning(f"Failed to create investor embeddings: {e}")
                 # Don't fail the lead submission if embeddings fail

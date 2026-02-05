@@ -1,5 +1,6 @@
 """Property service for deal management operations."""
 
+import asyncio
 import logging
 import uuid
 from typing import Optional, Sequence, Tuple
@@ -14,6 +15,7 @@ from app.models.property import Deal, Property
 from app.schemas.extraction import InvestorBriefExtraction
 from app.services.extraction_service import get_extraction_service
 from app.services.embedding_service import EmbeddingService
+from app.services.matching_service import run_matching_background
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -156,6 +158,9 @@ class PropertyService:
                     extraction=extraction,
                 )
                 logger.info(f"Generated embeddings for property {property_obj.id}")
+
+                # Trigger matching in background after embeddings are created
+                asyncio.create_task(run_matching_background(property_id=property_obj.id))
             except Exception as e:
                 # Log but don't fail the deal creation if embeddings fail
                 logger.error(f"Failed to generate embeddings for property {property_obj.id}: {e}")
