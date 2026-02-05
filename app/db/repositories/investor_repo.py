@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.db.repositories.base import BaseRepository
 from app.models.consent import Consent, LeadNote, StageHistory
 from app.models.investor import InvestorProfile
+from app.models.matching import DealMatch
 
 
 class InvestorRepository(BaseRepository[InvestorProfile]):
@@ -27,7 +28,7 @@ class InvestorRepository(BaseRepository[InvestorProfile]):
             select(InvestorProfile)
             .options(
                 selectinload(InvestorProfile.calls),
-                selectinload(InvestorProfile.matches),
+                selectinload(InvestorProfile.matches).selectinload(DealMatch.matched_property),
                 selectinload(InvestorProfile.notes),
                 selectinload(InvestorProfile.stage_history),
                 selectinload(InvestorProfile.consents),
@@ -96,8 +97,11 @@ class InvestorRepository(BaseRepository[InvestorProfile]):
         - sort_by: created_at, lead_score, capital_available
         - sort_order: asc, desc
         """
-        # Base query
-        query = select(InvestorProfile)
+        # Base query with eager loading for nested relationships
+        query = select(InvestorProfile).options(
+            selectinload(InvestorProfile.calls),
+            selectinload(InvestorProfile.matches).selectinload(DealMatch.matched_property),
+        )
 
         # Apply filters
         if stage:
