@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -69,6 +69,18 @@ class CallSession(Base, UUIDMixin):
         nullable=False,
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Extraction status tracking
+    extraction_status: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )  # 'pending', 'completed', 'failed'
+    extraction_confidence: Mapped[Optional[float]] = mapped_column(
+        Numeric(3, 2), nullable=True
+    )  # 0.00 - 1.00
+    extraction_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    extracted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

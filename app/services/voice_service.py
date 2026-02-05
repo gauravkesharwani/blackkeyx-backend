@@ -1,6 +1,8 @@
 """Voice service for call management operations."""
 
+import asyncio
 import logging
+import uuid
 from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -119,6 +121,14 @@ class VoiceService:
 
         await self.session.commit()
         logger.info(f"Session completed for call: {call.id}")
+
+        # Trigger async insight extraction (fire-and-forget)
+        # Only extract if we have a transcript and it's not a callback request
+        if transcript and not callback_requested:
+            asyncio.create_task(
+                self._extract_insights_background(call.investor_id, call.id, transcript)
+            )
+
         return call
 
     async def _save_transcript_segments(
@@ -171,3 +181,29 @@ class VoiceService:
     async def end_call(self, room_name: str) -> bool:
         """Force end a call by deleting the room."""
         return await self.livekit.end_call(room_name)
+
+    async def _extract_insights_background(
+        self,
+        investor_id: uuid.UUID,
+        call_id: uuid.UUID,
+        transcript: str,
+    ) -> None:
+        """Background task to extract insights from transcript.
+
+        Creates a new database session since this runs asynchronously
+        after the original request has completed.
+        """
+        try:
+            # Import here to avoid circular imports
+            from app.db.session import async_session_factory
+            from app.services.insight_extraction_service import InsightExtractionService
+
+            async with async_session_factory() as session:
+                extraction_service = InsightExtractionService(session)
+                await extraction_service.extract_and_save(
+                    investor_id=investor_id,
+                    call_session_id=call_id,
+                    transcript=transcript,
+                )
+        except Exception as e:
+            logger.error(f"Background insight extraction failed for call {call_id}: {e}")
