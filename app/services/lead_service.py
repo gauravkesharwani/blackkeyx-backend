@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.repositories.investor_repo import InvestorRepository
 from app.models.consent import StageHistory
 from app.models.investor import InvestorProfile
+from app.services.embedding_service import EmbeddingService
 
 logger = logging.getLogger(__name__)
 
@@ -141,5 +142,23 @@ class LeadService:
             notes="Lead submitted via chatbot",
         )
         self.session.add(stage_change)
+
+        # Generate investor embeddings if investment data is available
+        if (
+            investor.investment_thesis
+            or investor.investment_preferences
+            or investor.risk_tolerance
+        ):
+            try:
+                embedding_service = EmbeddingService(self.session)
+                await embedding_service.create_investor_profile_embedding(
+                    investor_id=investor.id,
+                    investment_thesis=investor.investment_thesis,
+                    investment_preferences=investor.investment_preferences,
+                    risk_tolerance=investor.risk_tolerance,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to create investor embeddings: {e}")
+                # Don't fail the lead submission if embeddings fail
 
         return investor, True

@@ -11,12 +11,10 @@ python-multipart
 # SQLAlchemy & Database
 sqlalchemy[asyncio]
 asyncpg
-alembic
 pgvector
 
 # AWS
-boto3
-aioboto3
+boto3==1.42.42
 
 # OpenAI
 openai
@@ -24,8 +22,5 @@ openai
 # LiveKit
 livekit-api
 
-# HTTP & Utilities
-httpx
-tenacity
-python-jose[cryptography]
+# Utilities
 dateparser
