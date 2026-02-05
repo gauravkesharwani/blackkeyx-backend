@@ -32,10 +32,12 @@ from app.schemas.investor import (
     CallbackRequestResponse,
     CallRecordResponse,
     DealMatchResponse,
+    InvestorPreferencesResponse,
     InvestorQualificationResponse,
     LeadListResponse,
     LeadNoteResponse,
     LeadWithDetailsResponse,
+    MatchScoreBreakdownResponse,
     StageChangeResponse,
     StageUpdateRequest,
 )
@@ -293,7 +295,7 @@ def _investor_to_response(lead) -> LeadWithDetailsResponse:
             bucket=lead.qualification_bucket,
         )
 
-    # Convert calls
+    # Convert calls (with extraction data)
     calls = [
         CallRecordResponse(
             id=str(call.id),
@@ -303,23 +305,48 @@ def _investor_to_response(lead) -> LeadWithDetailsResponse:
             recordingUrl=call.recording_url,
             initiatedAt=call.initiated_at,
             completedAt=call.completed_at,
+            extractionStatus=call.extraction_status,
+            extractionConfidence=float(call.extraction_confidence) if call.extraction_confidence is not None else None,
+            extractionSummary=call.extraction_summary,
+            extractedAt=call.extracted_at,
         )
         for call in (lead.calls or [])
     ]
 
-    # Convert matches
-    matches = [
-        DealMatchResponse(
-            id=str(match.id),
-            dealMemoId=str(match.property_id),
-            dealName=match.property.name if match.property else "",
-            similarityScore=float(match.similarity_score),
-            matchReasons=match.match_reasons or [],
-            status=match.status,
-            createdAt=match.created_at,
+    # Convert matches (with full scoring breakdown)
+    matches = []
+    for match in (lead.matches or []):
+        breakdown = None
+        if match.score_breakdown:
+            bd = match.score_breakdown
+            breakdown = MatchScoreBreakdownResponse(
+                returnMatch=bd.get("return_match"),
+                riskMatch=bd.get("risk_match"),
+                geographyMatch=bd.get("geography_match"),
+                structureMatch=bd.get("structure_match"),
+                holdPeriodMatch=bd.get("hold_period_match"),
+                strategyMatch=bd.get("strategy_match"),
+                capacityFit=bd.get("capacity_fit"),
+            )
+        matches.append(
+            DealMatchResponse(
+                id=str(match.id),
+                dealMemoId=str(match.property_id),
+                dealName=match.matched_property.name if match.matched_property else "",
+                similarityScore=float(match.similarity_score),
+                matchReasons=match.match_reasons or [],
+                status=match.status,
+                createdAt=match.created_at,
+                hardFilterPassed=match.hard_filter_passed,
+                softScore=float(match.soft_score) if match.soft_score is not None else None,
+                semanticScore=float(match.semantic_score) if match.semantic_score is not None else None,
+                finalScore=float(match.final_score) if match.final_score is not None else None,
+                concerns=match.concerns or [],
+                scoreBreakdown=breakdown,
+                presentedAt=match.presented_at,
+                investorResponse=match.investor_response,
+            )
         )
-        for match in (lead.matches or [])
-    ]
 
     # Convert notes
     notes = [
@@ -359,6 +386,29 @@ def _investor_to_response(lead) -> LeadWithDetailsResponse:
         for cb in (lead.callback_requests or [])
     ]
 
+    # Convert preferences
+    preferences = None
+    if lead.preferences:
+        pref = lead.preferences
+        preferences = InvestorPreferencesResponse(
+            id=str(pref.id),
+            investorId=str(pref.investor_id),
+            propertyTypes=pref.property_types or [],
+            preferredMarkets=pref.preferred_markets or [],
+            excludedMarkets=pref.excluded_markets or [],
+            targetIrrMin=float(pref.target_irr_min) if pref.target_irr_min is not None else None,
+            targetIrrMax=float(pref.target_irr_max) if pref.target_irr_max is not None else None,
+            riskToleranceLevel=pref.risk_tolerance_level,
+            investmentStrategy=pref.investment_strategy,
+            holdPeriodMin=pref.hold_period_min,
+            holdPeriodMax=pref.hold_period_max,
+            investmentExperience=pref.investment_experience,
+            specificConcerns=pref.specific_concerns,
+            preferredStructures=pref.preferred_structures or [],
+            createdAt=pref.created_at,
+            updatedAt=pref.updated_at,
+        )
+
     return LeadWithDetailsResponse(
         id=str(lead.id),
         name=lead.name,
@@ -379,4 +429,5 @@ def _investor_to_response(lead) -> LeadWithDetailsResponse:
         stageHistory=stage_history,
         callbackRequests=callback_requests,
         qualification=qualification,
+        preferences=preferences,
     )

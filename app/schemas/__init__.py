@@ -11,10 +11,12 @@ from app.schemas.investor import (
     AddNoteRequest,
     CallRecordResponse,
     DealMatchResponse,
+    InvestorPreferencesResponse,
     InvestorQualificationResponse,
     LeadListResponse,
     LeadNoteResponse,
     LeadWithDetailsResponse,
+    MatchScoreBreakdownResponse,
     StageChangeResponse,
     StageUpdateRequest,
 )
@@ -40,6 +42,8 @@ __all__ = [
     "LeadSubmissionResponse",
     # Investor
     "InvestorQualificationResponse",
+    "InvestorPreferencesResponse",
+    "MatchScoreBreakdownResponse",
     "CallRecordResponse",
     "DealMatchResponse",
     "LeadNoteResponse",
