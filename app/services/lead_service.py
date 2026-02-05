@@ -153,9 +153,8 @@ class LeadService:
                 embedding_service = EmbeddingService(self.session)
                 await embedding_service.create_investor_profile_embedding(
                     investor_id=investor.id,
-                    investment_thesis=investor.investment_thesis,
-                    investment_preferences=investor.investment_preferences,
-                    risk_tolerance=investor.risk_tolerance,
+                    investor=investor,
+                    preferences=None,  # No preferences yet at lead submission
                 )
             except Exception as e:
                 logger.warning(f"Failed to create investor embeddings: {e}")
