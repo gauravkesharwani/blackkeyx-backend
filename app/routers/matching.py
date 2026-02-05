@@ -45,19 +45,19 @@ class MatchResponse(BaseModel):
     """Match result response."""
 
     id: str
-    investorId: str = Field(..., alias="investor_id")
-    propertyId: str = Field(..., alias="property_id")
-    investorName: Optional[str] = Field(None, alias="investor_name")
-    investorPhone: Optional[str] = Field(None, alias="investor_phone")
-    dealName: Optional[str] = Field(None, alias="deal_name")
-    finalScore: float = Field(..., alias="final_score")
-    softScore: Optional[float] = Field(None, alias="soft_score")
-    semanticScore: Optional[float] = Field(None, alias="semantic_score")
-    matchReasons: List[str] = Field(default_factory=list, alias="match_reasons")
-    concerns: List[str] = Field(default_factory=list, alias="concerns")
-    scoreBreakdown: Optional[dict] = Field(None, alias="score_breakdown")
+    investorId: str = Field(..., validation_alias="investor_id")
+    propertyId: str = Field(..., validation_alias="property_id")
+    investorName: Optional[str] = Field(None, validation_alias="investor_name")
+    investorPhone: Optional[str] = Field(None, validation_alias="investor_phone")
+    dealName: Optional[str] = Field(None, validation_alias="deal_name")
+    finalScore: float = Field(..., validation_alias="final_score")
+    softScore: Optional[float] = Field(None, validation_alias="soft_score")
+    semanticScore: Optional[float] = Field(None, validation_alias="semantic_score")
+    matchReasons: List[str] = Field(default_factory=list, validation_alias="match_reasons")
+    concerns: List[str] = Field(default_factory=list, validation_alias="concerns")
+    scoreBreakdown: Optional[dict] = Field(None, validation_alias="score_breakdown")
     status: str
-    createdAt: str = Field(..., alias="created_at")
+    createdAt: str = Field(..., validation_alias="created_at")
 
     class Config:
         populate_by_name = True
@@ -86,9 +86,9 @@ class MatchingRunRequest(BaseModel):
 class MatchingRunResponse(BaseModel):
     """Response from matching run."""
 
-    matchesCreated: int = Field(..., alias="matches_created")
-    propertiesEvaluated: Optional[int] = Field(None, alias="properties_evaluated")
-    investorsEvaluated: Optional[int] = Field(None, alias="investors_evaluated")
+    matchesCreated: int = Field(..., validation_alias="matches_created")
+    propertiesEvaluated: Optional[int] = Field(None, validation_alias="properties_evaluated")
+    investorsEvaluated: Optional[int] = Field(None, validation_alias="investors_evaluated")
     message: str
 
     class Config:
@@ -335,11 +335,20 @@ async def run_matching(
         raise HTTPException(status_code=500, detail=f"Matching failed: {str(e)}")
 
 
+class MatchStatusUpdateRequest(BaseModel):
+    """Request to update match status."""
+
+    status: str
+    investorResponse: Optional[str] = Field(None, validation_alias="investor_response")
+
+    class Config:
+        populate_by_name = True
+
+
 @router.patch("/matches/{match_id}/status")
 async def update_match_status(
     match_id: UUID,
-    status: str = Query(..., description="New status"),
-    notes: Optional[str] = Query(None, description="Optional notes"),
+    body: MatchStatusUpdateRequest,
     session: AsyncSession = Depends(get_db),
 ):
     """
@@ -348,7 +357,7 @@ async def update_match_status(
     Valid statuses: pending, presented, accepted, rejected
     """
     valid_statuses = ["pending", "presented", "accepted", "rejected"]
-    if status not in valid_statuses:
+    if body.status not in valid_statuses:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid status. Must be one of: {valid_statuses}",
@@ -362,22 +371,22 @@ async def update_match_status(
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
 
-    match.status = status
-    if notes:
-        match.notes = notes
+    match.status = body.status
+    if body.investorResponse:
+        match.investor_response = body.investorResponse
 
     # Track presentation time
-    if status == "presented" and not match.presented_at:
+    if body.status == "presented" and not match.presented_at:
         from datetime import datetime
 
         match.presented_at = datetime.utcnow()
 
-    if status in ["accepted", "rejected"]:
-        match.investor_response = status
+    if body.status in ["accepted", "rejected"]:
+        match.investor_response = body.status
 
     await session.commit()
 
-    return {"status": "updated", "match_id": str(match_id), "new_status": status}
+    return {"status": "updated", "match_id": str(match_id), "new_status": body.status}
 
 
 @router.get("/matches/{match_id}", response_model=MatchResponse)
