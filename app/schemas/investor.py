@@ -16,6 +16,43 @@ from typing import List, Optional
 from pydantic import BaseModel, Field, field_serializer
 
 
+class InvestorPreferencesResponse(BaseModel):
+    """Detailed investor preferences from phone discovery."""
+
+    id: str
+    investorId: str
+    propertyTypes: List[str] = Field(default_factory=list)
+    preferredMarkets: List[str] = Field(default_factory=list)
+    excludedMarkets: List[str] = Field(default_factory=list)
+    targetIrrMin: Optional[float] = None
+    targetIrrMax: Optional[float] = None
+    riskToleranceLevel: Optional[str] = None
+    investmentStrategy: Optional[str] = None
+    holdPeriodMin: Optional[int] = None
+    holdPeriodMax: Optional[int] = None
+    investmentExperience: Optional[str] = None
+    specificConcerns: Optional[str] = None
+    preferredStructures: List[str] = Field(default_factory=list)
+    createdAt: datetime
+    updatedAt: datetime
+
+    @field_serializer("createdAt", "updatedAt")
+    def serialize_datetime(self, dt: datetime) -> str:
+        return dt.isoformat()
+
+
+class MatchScoreBreakdownResponse(BaseModel):
+    """Detailed score breakdown from matching engine."""
+
+    returnMatch: Optional[float] = None
+    riskMatch: Optional[float] = None
+    geographyMatch: Optional[float] = None
+    structureMatch: Optional[float] = None
+    holdPeriodMatch: Optional[float] = None
+    strategyMatch: Optional[float] = None
+    capacityFit: Optional[float] = None
+
+
 class InvestorQualificationResponse(BaseModel):
     """Qualification data in response format."""
 
@@ -51,8 +88,12 @@ class CallRecordResponse(BaseModel):
     recordingUrl: Optional[str] = None
     initiatedAt: datetime
     completedAt: Optional[datetime] = None
+    extractionStatus: Optional[str] = None
+    extractionConfidence: Optional[float] = None
+    extractionSummary: Optional[str] = None
+    extractedAt: Optional[datetime] = None
 
-    @field_serializer("initiatedAt", "completedAt")
+    @field_serializer("initiatedAt", "completedAt", "extractedAt")
     def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
         return dt.isoformat() if dt else None
 
@@ -80,10 +121,18 @@ class DealMatchResponse(BaseModel):
     matchReasons: List[str]
     status: str
     createdAt: datetime
+    hardFilterPassed: Optional[bool] = None
+    softScore: Optional[float] = None
+    semanticScore: Optional[float] = None
+    finalScore: Optional[float] = None
+    concerns: List[str] = Field(default_factory=list)
+    scoreBreakdown: Optional[MatchScoreBreakdownResponse] = None
+    presentedAt: Optional[datetime] = None
+    investorResponse: Optional[str] = None
 
-    @field_serializer("createdAt")
-    def serialize_datetime(self, dt: datetime) -> str:
-        return dt.isoformat()
+    @field_serializer("createdAt", "presentedAt")
+    def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+        return dt.isoformat() if dt else None
 
 
 class LeadNoteResponse(BaseModel):
@@ -210,6 +259,7 @@ class LeadWithDetailsResponse(BaseModel):
     stageHistory: List[StageChangeResponse] = Field(default_factory=list)
     callbackRequests: List["CallbackRequestResponse"] = Field(default_factory=list)
     qualification: Optional[InvestorQualificationResponse] = None
+    preferences: Optional[InvestorPreferencesResponse] = None
 
     @field_serializer("createdAt", "updatedAt")
     def serialize_datetime(self, dt: datetime) -> str:
