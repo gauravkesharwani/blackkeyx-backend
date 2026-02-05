@@ -13,8 +13,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.db.session import get_db
 from app.models.matching import DealMatch
@@ -44,16 +45,19 @@ class MatchResponse(BaseModel):
     """Match result response."""
 
     id: str
-    investorId: str = Field(..., alias="investor_id")
-    propertyId: str = Field(..., alias="property_id")
-    finalScore: float = Field(..., alias="final_score")
-    softScore: Optional[float] = Field(None, alias="soft_score")
-    semanticScore: Optional[float] = Field(None, alias="semantic_score")
-    matchReasons: List[str] = Field(default_factory=list, alias="match_reasons")
-    concerns: List[str] = Field(default_factory=list, alias="concerns")
-    scoreBreakdown: Optional[dict] = Field(None, alias="score_breakdown")
+    investorId: str = Field(..., validation_alias="investor_id")
+    propertyId: str = Field(..., validation_alias="property_id")
+    investorName: Optional[str] = Field(None, validation_alias="investor_name")
+    investorPhone: Optional[str] = Field(None, validation_alias="investor_phone")
+    dealName: Optional[str] = Field(None, validation_alias="deal_name")
+    finalScore: float = Field(..., validation_alias="final_score")
+    softScore: Optional[float] = Field(None, validation_alias="soft_score")
+    semanticScore: Optional[float] = Field(None, validation_alias="semantic_score")
+    matchReasons: List[str] = Field(default_factory=list, validation_alias="match_reasons")
+    concerns: List[str] = Field(default_factory=list, validation_alias="concerns")
+    scoreBreakdown: Optional[dict] = Field(None, validation_alias="score_breakdown")
     status: str
-    createdAt: str = Field(..., alias="created_at")
+    createdAt: str = Field(..., validation_alias="created_at")
 
     class Config:
         populate_by_name = True
@@ -82,9 +86,9 @@ class MatchingRunRequest(BaseModel):
 class MatchingRunResponse(BaseModel):
     """Response from matching run."""
 
-    matchesCreated: int = Field(..., alias="matches_created")
-    propertiesEvaluated: Optional[int] = Field(None, alias="properties_evaluated")
-    investorsEvaluated: Optional[int] = Field(None, alias="investors_evaluated")
+    matchesCreated: int = Field(..., validation_alias="matches_created")
+    propertiesEvaluated: Optional[int] = Field(None, validation_alias="properties_evaluated")
+    investorsEvaluated: Optional[int] = Field(None, validation_alias="investors_evaluated")
     message: str
 
     class Config:
@@ -108,7 +112,11 @@ async def get_investor_matches(
     Returns deals that have been matched to this investor,
     sorted by final score descending.
     """
-    query = select(DealMatch).where(DealMatch.investor_id == investor_id)
+    query = (
+        select(DealMatch)
+        .where(DealMatch.investor_id == investor_id)
+        .options(selectinload(DealMatch.matched_property))
+    )
 
     if status:
         query = query.where(DealMatch.status == status)
@@ -127,6 +135,7 @@ async def get_investor_matches(
                 id=str(m.id),
                 investor_id=str(m.investor_id),
                 property_id=str(m.property_id),
+                deal_name=m.matched_property.name if m.matched_property else None,
                 final_score=float(m.final_score or m.similarity_score * 100),
                 soft_score=float(m.soft_score) if m.soft_score else None,
                 semantic_score=float(m.semantic_score) if m.semantic_score else None,
@@ -156,7 +165,11 @@ async def get_property_matches(
     Returns investors that have been matched to this property,
     sorted by final score descending.
     """
-    query = select(DealMatch).where(DealMatch.property_id == property_id)
+    query = (
+        select(DealMatch)
+        .where(DealMatch.property_id == property_id)
+        .options(selectinload(DealMatch.investor))
+    )
 
     if status:
         query = query.where(DealMatch.status == status)
@@ -175,6 +188,8 @@ async def get_property_matches(
                 id=str(m.id),
                 investor_id=str(m.investor_id),
                 property_id=str(m.property_id),
+                investor_name=m.investor.name if m.investor else None,
+                investor_phone=m.investor.phone if m.investor else None,
                 final_score=float(m.final_score or m.similarity_score * 100),
                 soft_score=float(m.soft_score) if m.soft_score else None,
                 semantic_score=float(m.semantic_score) if m.semantic_score else None,
@@ -187,6 +202,69 @@ async def get_property_matches(
             for m in matches
         ],
         total=len(matches),
+    )
+
+
+@router.get("/all", response_model=MatchListResponse)
+async def get_all_matches(
+    status: Optional[str] = Query(None, description="Filter by status"),
+    min_score: float = Query(0.0, description="Minimum score filter"),
+    limit: int = Query(100, le=200, description="Maximum results"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Get all matches across the platform.
+
+    Returns matches with both investor and deal details loaded,
+    sorted by final score descending. Used by the admin matches dashboard.
+    """
+    query = select(DealMatch).options(
+        selectinload(DealMatch.investor),
+        selectinload(DealMatch.matched_property),
+    )
+
+    if status:
+        query = query.where(DealMatch.status == status)
+
+    if min_score > 0:
+        query = query.where(DealMatch.final_score >= min_score)
+
+    query = query.order_by(DealMatch.final_score.desc()).offset(offset).limit(limit)
+
+    result = await session.execute(query)
+    matches = result.scalars().all()
+
+    # Get total count
+    count_query = select(func.count()).select_from(DealMatch)
+    if status:
+        count_query = count_query.where(DealMatch.status == status)
+    if min_score > 0:
+        count_query = count_query.where(DealMatch.final_score >= min_score)
+    total_result = await session.execute(count_query)
+    total = total_result.scalar_one()
+
+    return MatchListResponse(
+        matches=[
+            MatchResponse(
+                id=str(m.id),
+                investor_id=str(m.investor_id),
+                property_id=str(m.property_id),
+                investor_name=m.investor.name if m.investor else None,
+                investor_phone=m.investor.phone if m.investor else None,
+                deal_name=m.matched_property.name if m.matched_property else None,
+                final_score=float(m.final_score or m.similarity_score * 100),
+                soft_score=float(m.soft_score) if m.soft_score else None,
+                semantic_score=float(m.semantic_score) if m.semantic_score else None,
+                match_reasons=m.match_reasons or [],
+                concerns=m.concerns or [],
+                score_breakdown=m.score_breakdown,
+                status=m.status,
+                created_at=m.created_at.isoformat(),
+            )
+            for m in matches
+        ],
+        total=total,
     )
 
 
@@ -257,11 +335,20 @@ async def run_matching(
         raise HTTPException(status_code=500, detail=f"Matching failed: {str(e)}")
 
 
+class MatchStatusUpdateRequest(BaseModel):
+    """Request to update match status."""
+
+    status: str
+    investorResponse: Optional[str] = Field(None, validation_alias="investor_response")
+
+    class Config:
+        populate_by_name = True
+
+
 @router.patch("/matches/{match_id}/status")
 async def update_match_status(
     match_id: UUID,
-    status: str = Query(..., description="New status"),
-    notes: Optional[str] = Query(None, description="Optional notes"),
+    body: MatchStatusUpdateRequest,
     session: AsyncSession = Depends(get_db),
 ):
     """
@@ -270,7 +357,7 @@ async def update_match_status(
     Valid statuses: pending, presented, accepted, rejected
     """
     valid_statuses = ["pending", "presented", "accepted", "rejected"]
-    if status not in valid_statuses:
+    if body.status not in valid_statuses:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid status. Must be one of: {valid_statuses}",
@@ -284,22 +371,22 @@ async def update_match_status(
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
 
-    match.status = status
-    if notes:
-        match.notes = notes
+    match.status = body.status
+    if body.investorResponse:
+        match.investor_response = body.investorResponse
 
     # Track presentation time
-    if status == "presented" and not match.presented_at:
+    if body.status == "presented" and not match.presented_at:
         from datetime import datetime
 
         match.presented_at = datetime.utcnow()
 
-    if status in ["accepted", "rejected"]:
-        match.investor_response = status
+    if body.status in ["accepted", "rejected"]:
+        match.investor_response = body.status
 
     await session.commit()
 
-    return {"status": "updated", "match_id": str(match_id), "new_status": status}
+    return {"status": "updated", "match_id": str(match_id), "new_status": body.status}
 
 
 @router.get("/matches/{match_id}", response_model=MatchResponse)
