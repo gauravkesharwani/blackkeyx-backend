@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.dependencies import get_voice_service
+from app.middleware.auth import require_agent_auth
 from app.services.voice_service import VoiceService
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,7 @@ async def get_call_status(
 async def session_complete(
     request: SessionCompleteRequest,
     voice_service: VoiceService = Depends(get_voice_service),
+    _agent_auth: bool = Depends(require_agent_auth),
 ):
     """
     Called by LiveKit agent when session ends.

@@ -22,6 +22,9 @@ openai
 # LiveKit
 livekit-api
 
+# Rate Limiting
+slowapi
+
 # Utilities
 dateparser
 numpy

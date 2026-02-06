@@ -17,11 +17,12 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from app.config import get_settings
 from app.dependencies import get_admin_service
 from app.middleware.auth import require_admin, sign_session_token
+from app.middleware.rate_limit import limiter
 from app.schemas.admin import (
     ActivityItem,
     AdminStatsResponse,
@@ -63,7 +64,9 @@ VALID_STAGES = [
 
 
 @router.post("/auth", response_model=AuthResponse)
+@limiter.limit(settings.rate_limit_admin_auth)
 async def login(
+    request: Request,
     auth_data: AuthRequest,
     response: Response,
 ) -> AuthResponse:

@@ -67,3 +67,42 @@ async def require_admin(
         status_code=401,
         detail="Authentication required. Provide a valid session cookie or X-API-Key header.",
     )
+
+
+# --- Agent Callback Verification ---
+
+_AGENT_SIGNING_KEY = hashlib.sha256(
+    settings.agent_callback_secret.encode()
+).digest()
+
+
+def verify_agent_signature(body: bytes, signature: str) -> bool:
+    """Verify HMAC-SHA256 signature from the voice agent."""
+    expected = hmac.new(_AGENT_SIGNING_KEY, body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
+
+
+async def require_agent_auth(
+    request: Request,
+    x_agent_signature: Optional[str] = Header(None),
+) -> bool:
+    """
+    FastAPI dependency that requires valid agent callback signature.
+
+    Reads the raw body, computes HMAC-SHA256, and compares with
+    the X-Agent-Signature header. Raises 401 if invalid.
+    """
+    if not x_agent_signature:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing X-Agent-Signature header.",
+        )
+
+    body = await request.body()
+    if not verify_agent_signature(body, x_agent_signature):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid agent signature.",
+        )
+
+    return True

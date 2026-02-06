@@ -8,14 +8,18 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
+from app.config import get_settings
 from app.dependencies import get_lead_service
+from app.middleware.rate_limit import limiter
 from app.schemas.lead import LeadSubmissionRequest, LeadSubmissionResponse
 from app.services.lead_service import LeadService
 
 router = APIRouter()
+settings = get_settings()
 
 
 @router.post("/submit-lead", response_model=LeadSubmissionResponse)
+@limiter.limit(settings.rate_limit_lead)
 async def submit_lead(
     request: Request,
     lead_data: LeadSubmissionRequest,

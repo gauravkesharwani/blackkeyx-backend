@@ -101,7 +101,7 @@ class LeadProcessor:
             source="web",
         )
 
-        # Add qualification data
+        # Add qualification data — score computed server-side
         if lead_data.qualification:
             q = lead_data.qualification
             investor.investor_type = q.investorType
@@ -109,9 +109,24 @@ class LeadProcessor:
             investor.fit = q.fit
             investor.process = q.process
             investor.timing = q.timing
-            investor.qualification_bucket = q.bucket
-            investor.qualification_score = q.score
-            investor.lead_score = q.score
+
+            from app.services.lead_service import (
+                calculate_qualification_score,
+                determine_qualification_bucket,
+            )
+
+            qual_dict = {
+                "capacity": q.capacity,
+                "fit": q.fit,
+                "process": q.process,
+                "timing": q.timing,
+            }
+            score = calculate_qualification_score(qual_dict)
+            bucket = determine_qualification_bucket(score)
+
+            investor.qualification_score = score
+            investor.qualification_bucket = bucket
+            investor.lead_score = score
 
         # Save investor
         investor = await self.investor_repo.create(investor)
