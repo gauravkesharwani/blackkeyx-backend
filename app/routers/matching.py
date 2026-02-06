@@ -18,12 +18,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.session import get_db
+from app.middleware.auth import require_admin
 from app.models.matching import DealMatch
 from app.services.matching_service import MatchingService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/matching", tags=["matching"])
+router = APIRouter(
+    prefix="/api/v1/matching",
+    tags=["matching"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 # ==================== Response Models ====================

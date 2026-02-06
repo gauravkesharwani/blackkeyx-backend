@@ -16,6 +16,63 @@ from app.services.matching_service import run_matching_background
 
 logger = logging.getLogger(__name__)
 
+# --- Qualification scoring (single source of truth) ---
+
+CAPACITY_SCORES: dict[str, int] = {
+    "$100K-$250K": 10,
+    "$250K-$500K": 15,
+    "$500K-$1M": 20,
+    "$1M+": 25,
+}
+
+FIT_SCORES: dict[str, int] = {
+    "high_priority": 25,
+    "medium_priority": 15,
+    "open_to_exploring": 10,
+    "not_a_focus": 5,
+}
+
+PROCESS_SCORES: dict[str, int] = {
+    "toe_in": 10,
+    "meaningful_first": 20,
+    "full_commitment": 25,
+}
+
+TIMING_SCORES: dict[str, int] = {
+    "actively_deploying": 25,
+    "possibly_evaluating": 15,
+    "just_researching": 5,
+}
+
+_OTHER_DEFAULT_SCORE = 15
+
+
+def _get_score(value: Optional[str], scores: dict[str, int]) -> int:
+    if not value:
+        return 0
+    if value.startswith("other:"):
+        return _OTHER_DEFAULT_SCORE
+    return scores.get(value, _OTHER_DEFAULT_SCORE)
+
+
+def calculate_qualification_score(qualification: dict) -> int:
+    """Compute qualification score (0-100) from raw chatbot answers."""
+    return (
+        _get_score(qualification.get("capacity"), CAPACITY_SCORES)
+        + _get_score(qualification.get("fit"), FIT_SCORES)
+        + _get_score(qualification.get("process"), PROCESS_SCORES)
+        + _get_score(qualification.get("timing"), TIMING_SCORES)
+    )
+
+
+def determine_qualification_bucket(score: int) -> str:
+    """Determine bucket: active_intro (>=70), nurture (>=40), not_qualified (<40)."""
+    if score >= 70:
+        return "active_intro"
+    if score >= 40:
+        return "nurture"
+    return "not_qualified"
+
 
 class LeadService:
     """Service for lead submission operations."""
@@ -113,16 +170,20 @@ class LeadService:
             source="web",
         )
 
-        # Add qualification data if present
+        # Add qualification data if present — score computed server-side
         if qualification:
             investor.investor_type = qualification.get("investorType")
             investor.capacity = qualification.get("capacity")
             investor.fit = qualification.get("fit")
             investor.process = qualification.get("process")
             investor.timing = qualification.get("timing")
-            investor.qualification_bucket = qualification.get("bucket")
-            investor.qualification_score = qualification.get("score")
-            investor.lead_score = qualification.get("score")
+
+            score = calculate_qualification_score(qualification)
+            bucket = determine_qualification_bucket(score)
+
+            investor.qualification_score = score
+            investor.qualification_bucket = bucket
+            investor.lead_score = score
 
         # Save investor
         investor = await self.investor_repo.create(investor)

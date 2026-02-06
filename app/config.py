@@ -34,6 +34,15 @@ class Settings(BaseSettings):
 
     # Admin Authentication
     admin_password: str = "changeme"
+    admin_api_key: str = "changeme-api-key"
+
+    # Agent Callback Authentication (shared secret with voice agent)
+    agent_callback_secret: str = "changeme-agent-secret"
+
+    # Rate Limiting (slowapi format: "N/period")
+    rate_limit_lead: str = "5/minute"
+    rate_limit_admin_auth: str = "5/minute"
+    rate_limit_global: str = "100/minute"
 
     # Application
     debug: bool = False

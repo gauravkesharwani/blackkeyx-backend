@@ -29,6 +29,9 @@ dependencies = [
     # LiveKit (for voice AI integration)
     "livekit-api>=0.7.0",
 
+    # Rate Limiting
+    "slowapi>=0.1.9",
+
     # HTTP & Utilities
     "httpx>=0.28.0",
     "tenacity>=9.0.0",

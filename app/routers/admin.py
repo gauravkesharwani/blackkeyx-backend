@@ -17,10 +17,12 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from app.config import get_settings
 from app.dependencies import get_admin_service
+from app.middleware.auth import require_admin, sign_session_token
+from app.middleware.rate_limit import limiter
 from app.schemas.admin import (
     ActivityItem,
     AdminStatsResponse,
@@ -62,7 +64,9 @@ VALID_STAGES = [
 
 
 @router.post("/auth", response_model=AuthResponse)
+@limiter.limit(settings.rate_limit_admin_auth)
 async def login(
+    request: Request,
     auth_data: AuthRequest,
     response: Response,
 ) -> AuthResponse:
@@ -70,11 +74,12 @@ async def login(
     if auth_data.password != settings.admin_password:
         raise HTTPException(status_code=401, detail="Invalid password")
 
-    # Set session cookie (same pattern as frontend)
-    session_token = f"{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}"
+    # Create HMAC-signed session cookie
+    payload = f"{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}"
+    signed_token = sign_session_token(payload)
     response.set_cookie(
         key="admin_session",
-        value=session_token,
+        value=signed_token,
         httponly=True,
         secure=False,  # Set True in production
         samesite="lax",
@@ -94,6 +99,7 @@ async def logout(response: Response) -> AuthResponse:
 @router.get("/stats", response_model=AdminStatsResponse)
 async def get_stats(
     admin_service: AdminService = Depends(get_admin_service),
+    _auth: bool = Depends(require_admin),
 ) -> AdminStatsResponse:
     """
     Get admin dashboard statistics.
@@ -129,6 +135,7 @@ async def get_stats(
 
 @router.get("/leads", response_model=LeadListResponse)
 async def list_leads(
+    _auth: bool = Depends(require_admin),
     admin_service: AdminService = Depends(get_admin_service),
     stage: Optional[str] = Query(None),
     score_min: Optional[int] = Query(None, alias="scoreMin"),
@@ -208,6 +215,7 @@ async def list_leads(
 async def get_lead(
     lead_id: uuid.UUID,
     admin_service: AdminService = Depends(get_admin_service),
+    _auth: bool = Depends(require_admin),
 ) -> LeadWithDetailsResponse:
     """Get single lead with full details."""
     lead = await admin_service.get_lead(lead_id)
@@ -222,6 +230,7 @@ async def update_lead_stage(
     lead_id: uuid.UUID,
     stage_data: StageUpdateRequest,
     admin_service: AdminService = Depends(get_admin_service),
+    _auth: bool = Depends(require_admin),
 ) -> LeadWithDetailsResponse:
     """
     Update lead pipeline stage.
@@ -262,6 +271,7 @@ async def add_lead_note(
     lead_id: uuid.UUID,
     note_data: AddNoteRequest,
     admin_service: AdminService = Depends(get_admin_service),
+    _auth: bool = Depends(require_admin),
 ) -> LeadNoteResponse:
     """Add a note to a lead."""
     note = await admin_service.add_lead_note(
