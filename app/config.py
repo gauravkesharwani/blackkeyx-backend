@@ -34,6 +34,7 @@ class Settings(BaseSettings):
 
     # Admin Authentication
     admin_password: str = "changeme"
+    admin_api_key: str = "changeme-api-key"
 
     # Application
     debug: bool = False

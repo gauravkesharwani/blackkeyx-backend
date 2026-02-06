@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from typing import List, Optional, Tuple
 
 from app.dependencies import get_property_service
+from app.middleware.auth import require_admin
 from app.models.property import Property
 from app.schemas.property import (
     AnnualProjectionResponse,
@@ -49,7 +50,7 @@ from app.services.property_service import PropertyService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 
 @router.get("", response_model=DealListResponse, response_model_by_alias=False)
