@@ -25,10 +25,11 @@ from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from app.config import get_settings
-from app.models.investor import InvestorProfile
+from app.models.investor import InvestorPreferences, InvestorProfile
 from app.models.consent import LeadNote, StageHistory, Consent
+from app.models.embeddings import InvestorEmbedding
 from app.models.matching import DealMatch
-from app.models.voice import CallSession, CallTranscript
+from app.models.voice import CallbackRequest, CallSession, CallTranscript
 
 
 async def get_lead_by_phone(session: AsyncSession, phone: str) -> InvestorProfile | None:
@@ -87,6 +88,24 @@ async def count_related_records(session: AsyncSession, investor_id: str) -> dict
     )
     counts['lead_notes'] = notes_count.scalar() or 0
 
+    # Count callback requests
+    callback_count = await session.execute(
+        select(func.count()).where(CallbackRequest.investor_id == investor_id)
+    )
+    counts['callback_requests'] = callback_count.scalar() or 0
+
+    # Count investor preferences
+    prefs_count = await session.execute(
+        select(func.count()).where(InvestorPreferences.investor_id == investor_id)
+    )
+    counts['investor_preferences'] = prefs_count.scalar() or 0
+
+    # Count investor embeddings
+    embedding_count = await session.execute(
+        select(func.count()).where(InvestorEmbedding.investor_id == investor_id)
+    )
+    counts['investor_embeddings'] = embedding_count.scalar() or 0
+
     return counts
 
 
@@ -108,37 +127,55 @@ async def delete_lead_data(session: AsyncSession, investor_id: str) -> dict:
     else:
         deleted['call_transcripts'] = 0
 
-    # 2. Delete call sessions
+    # 2. Delete callback requests (must precede call_sessions — FK to both tables)
+    result = await session.execute(
+        delete(CallbackRequest).where(CallbackRequest.investor_id == investor_id)
+    )
+    deleted['callback_requests'] = result.rowcount
+
+    # 3. Delete call sessions
     result = await session.execute(
         delete(CallSession).where(CallSession.investor_id == investor_id)
     )
     deleted['call_sessions'] = result.rowcount
 
-    # 3. Delete deal matches
+    # 4. Delete deal matches
     result = await session.execute(
         delete(DealMatch).where(DealMatch.investor_id == investor_id)
     )
     deleted['deal_matches'] = result.rowcount
 
-    # 4. Delete consents
+    # 5. Delete consents
     result = await session.execute(
         delete(Consent).where(Consent.investor_id == investor_id)
     )
     deleted['consents'] = result.rowcount
 
-    # 5. Delete stage history
+    # 6. Delete stage history
     result = await session.execute(
         delete(StageHistory).where(StageHistory.investor_id == investor_id)
     )
     deleted['stage_history'] = result.rowcount
 
-    # 6. Delete lead notes
+    # 7. Delete lead notes
     result = await session.execute(
         delete(LeadNote).where(LeadNote.investor_id == investor_id)
     )
     deleted['lead_notes'] = result.rowcount
 
-    # 7. Delete the lead itself
+    # 8. Delete investor preferences
+    result = await session.execute(
+        delete(InvestorPreferences).where(InvestorPreferences.investor_id == investor_id)
+    )
+    deleted['investor_preferences'] = result.rowcount
+
+    # 9. Delete investor embeddings
+    result = await session.execute(
+        delete(InvestorEmbedding).where(InvestorEmbedding.investor_id == investor_id)
+    )
+    deleted['investor_embeddings'] = result.rowcount
+
+    # 10. Delete the lead itself
     result = await session.execute(
         delete(InvestorProfile).where(InvestorProfile.id == investor_id)
     )
