@@ -24,6 +24,25 @@ from app.services.matching_service import MatchingService
 
 logger = logging.getLogger(__name__)
 
+# Max points per soft-score category (for normalizing to 0-1)
+_MAX_PTS = {
+    "return_match": 25, "risk_match": 20, "geography_match": 15,
+    "structure_match": 15, "hold_period_match": 10,
+    "strategy_match": 10, "capacity_fit": 5,
+}
+
+
+def _normalize_breakdown(raw: dict | None) -> dict | None:
+    """Extract nested breakdown and normalize raw points to 0-1 ratio."""
+    if not raw:
+        return None
+    bd = raw.get("breakdown", raw)
+    return {
+        k: bd[k] / _MAX_PTS[k] if bd.get(k) is not None else None
+        for k in _MAX_PTS
+    }
+
+
 router = APIRouter(
     prefix="/api/v1/matching",
     tags=["matching"],
@@ -146,7 +165,7 @@ async def get_investor_matches(
                 semantic_score=float(m.semantic_score) if m.semantic_score else None,
                 match_reasons=m.match_reasons or [],
                 concerns=m.concerns or [],
-                score_breakdown=m.score_breakdown,
+                score_breakdown=_normalize_breakdown(m.score_breakdown),
                 status=m.status,
                 created_at=m.created_at.isoformat(),
             )
@@ -200,7 +219,7 @@ async def get_property_matches(
                 semantic_score=float(m.semantic_score) if m.semantic_score else None,
                 match_reasons=m.match_reasons or [],
                 concerns=m.concerns or [],
-                score_breakdown=m.score_breakdown,
+                score_breakdown=_normalize_breakdown(m.score_breakdown),
                 status=m.status,
                 created_at=m.created_at.isoformat(),
             )
@@ -263,7 +282,7 @@ async def get_all_matches(
                 semantic_score=float(m.semantic_score) if m.semantic_score else None,
                 match_reasons=m.match_reasons or [],
                 concerns=m.concerns or [],
-                score_breakdown=m.score_breakdown,
+                score_breakdown=_normalize_breakdown(m.score_breakdown),
                 status=m.status,
                 created_at=m.created_at.isoformat(),
             )
@@ -417,7 +436,7 @@ async def get_match(
         semantic_score=float(match.semantic_score) if match.semantic_score else None,
         match_reasons=match.match_reasons or [],
         concerns=match.concerns or [],
-        score_breakdown=match.score_breakdown,
+        score_breakdown=_normalize_breakdown(match.score_breakdown),
         status=match.status,
         created_at=match.created_at.isoformat(),
     )

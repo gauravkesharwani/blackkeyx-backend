@@ -328,15 +328,25 @@ def _investor_to_response(lead) -> LeadWithDetailsResponse:
     for match in (lead.matches or []):
         breakdown = None
         if match.score_breakdown:
-            bd = match.score_breakdown
+            bd = match.score_breakdown.get("breakdown", match.score_breakdown)
+            # Normalize raw points to 0-1 ratio (max points per category)
+            max_pts = {
+                "return_match": 25, "risk_match": 20, "geography_match": 15,
+                "structure_match": 15, "hold_period_match": 10,
+                "strategy_match": 10, "capacity_fit": 5,
+            }
+            def _norm(key: str):
+                val = bd.get(key)
+                return val / max_pts[key] if val is not None else None
+
             breakdown = MatchScoreBreakdownResponse(
-                returnMatch=bd.get("return_match"),
-                riskMatch=bd.get("risk_match"),
-                geographyMatch=bd.get("geography_match"),
-                structureMatch=bd.get("structure_match"),
-                holdPeriodMatch=bd.get("hold_period_match"),
-                strategyMatch=bd.get("strategy_match"),
-                capacityFit=bd.get("capacity_fit"),
+                returnMatch=_norm("return_match"),
+                riskMatch=_norm("risk_match"),
+                geographyMatch=_norm("geography_match"),
+                structureMatch=_norm("structure_match"),
+                holdPeriodMatch=_norm("hold_period_match"),
+                strategyMatch=_norm("strategy_match"),
+                capacityFit=_norm("capacity_fit"),
             )
         matches.append(
             DealMatchResponse(
