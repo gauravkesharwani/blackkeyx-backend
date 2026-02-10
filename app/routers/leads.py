@@ -45,10 +45,12 @@ async def submit_lead(
             detail="Consent is required for lead submission",
         )
 
-    # Get IP address
-    ip_address = x_forwarded_for or (
-        request.client.host if request.client else None
-    )
+    # Get client IP address (first entry in X-Forwarded-For is the original client)
+    ip_address = None
+    if x_forwarded_for:
+        ip_address = x_forwarded_for.split(",")[0].strip()
+    elif request.client:
+        ip_address = request.client.host
 
     # Build qualification dict if present
     qualification = None
@@ -59,8 +61,6 @@ async def submit_lead(
             "fit": lead_data.qualification.fit,
             "process": lead_data.qualification.process,
             "timing": lead_data.qualification.timing,
-            "bucket": lead_data.qualification.bucket,
-            "score": lead_data.qualification.score,
         }
 
     # Submit lead via service
