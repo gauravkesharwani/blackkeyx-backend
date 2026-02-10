@@ -59,8 +59,6 @@ async def submit_lead(
             "fit": lead_data.qualification.fit,
             "process": lead_data.qualification.process,
             "timing": lead_data.qualification.timing,
-            "bucket": lead_data.qualification.bucket,
-            "score": lead_data.qualification.score,
         }
 
     # Submit lead via service
