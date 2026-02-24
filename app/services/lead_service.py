@@ -8,10 +8,12 @@ from typing import Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.repositories.call_repo import CallRepository
 from app.db.repositories.investor_repo import InvestorRepository
 from app.models.consent import StageHistory
 from app.models.investor import InvestorProfile
 from app.services.embedding_service import EmbeddingService
+from app.services.livekit_dispatcher import get_livekit_dispatcher
 from app.services.matching_service import run_matching_background
 
 logger = logging.getLogger(__name__)
@@ -80,6 +82,8 @@ class LeadService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.investor_repo = InvestorRepository(session)
+        self.call_repo = CallRepository(session)
+        self.livekit = get_livekit_dispatcher()
 
     @staticmethod
     def normalize_phone(phone: str) -> str:
@@ -224,5 +228,42 @@ class LeadService:
             except Exception as e:
                 logger.warning(f"Failed to create investor embeddings: {e}")
                 # Don't fail the lead submission if embeddings fail
+
+        # Auto-dispatch outbound call to the new lead
+        try:
+            investor_context = {
+                "investor_id": str(investor.id),
+                "name": investor.name or "there",
+                "capital_available": investor.capacity or investor.capital_available,
+                "timeline": investor.timeline,
+                "investment_preferences": investor.investment_preferences or [],
+            }
+
+            room_name = await self.livekit.dispatch_outbound_call(
+                phone_number=normalized_phone,
+                investor_context=investor_context,
+            )
+
+            await self.call_repo.create_call(
+                investor_id=investor.id,
+                room_name=room_name,
+                status="initiated",
+            )
+
+            # Transition stage to call_dispatched
+            investor.stage = "call_dispatched"
+            dispatch_stage = StageHistory(
+                investor_id=investor.id,
+                from_stage="new_lead",
+                to_stage="call_dispatched",
+                changed_by="system",
+                notes="Auto-dispatched outbound call after lead submission",
+            )
+            self.session.add(dispatch_stage)
+            logger.info(f"Outbound call dispatched for lead {investor.id} in room {room_name}")
+        except Exception as e:
+            logger.warning(f"Failed to dispatch outbound call for lead {investor.id}: {e}")
+            # Don't fail the lead submission if call dispatch fails —
+            # lead stays at "new_lead" stage for manual admin follow-up
 
         return investor, True
