@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -19,8 +20,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler for startup/shutdown events."""
     # Startup
     await init_db()
+
+    # Start callback scheduler
+    scheduler_task = None
+    if settings.callback_scheduler_enabled:
+        from app.services.callback_scheduler import get_callback_scheduler
+
+        scheduler = get_callback_scheduler()
+        scheduler_task = asyncio.create_task(scheduler.run())
+
     yield
-    # Shutdown (cleanup if needed)
+
+    # Shutdown
+    if scheduler_task:
+        from app.services.callback_scheduler import get_callback_scheduler
+
+        get_callback_scheduler().stop()
+        try:
+            await asyncio.wait_for(scheduler_task, timeout=10.0)
+        except asyncio.TimeoutError:
+            scheduler_task.cancel()
 
 
 app = FastAPI(

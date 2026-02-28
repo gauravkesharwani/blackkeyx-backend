@@ -54,6 +54,7 @@ class VoiceService:
         callback_requested: bool = False,
         callback_datetime: Optional[str] = None,
         callback_notes: Optional[str] = None,
+        investor_timezone: Optional[str] = None,
     ) -> Optional[CallSession]:
         """
         Complete a call session - save transcript and update investor stage.
@@ -82,13 +83,36 @@ class VoiceService:
 
         # Handle callback request
         if callback_requested and callback_datetime:
-            # Parse the datetime using dateparser
+            # Save investor timezone if provided (normalize to IANA)
+            if investor_timezone:
+                investor = await self.investor_repo.get(call.investor_id)
+                if investor:
+                    from app.utils.timezone import _normalize_tz
+                    investor.timezone = _normalize_tz(investor_timezone) or investor_timezone
+                    await self.session.flush()
+
+            # Resolve timezone for dateparser
+            from app.utils.timezone import get_investor_timezone
+
+            investor = await self.investor_repo.get(call.investor_id)
+            tz_name = get_investor_timezone(
+                getattr(investor, "timezone", None),
+                investor.phone if investor else None,
+            )
+
+            # Parse the datetime using dateparser with timezone awareness
             parsed_dt = None
             try:
                 import dateparser
 
                 parsed_dt = dateparser.parse(
-                    callback_datetime, settings={"PREFER_DATES_FROM": "future"}
+                    callback_datetime,
+                    settings={
+                        "PREFER_DATES_FROM": "future",
+                        "TIMEZONE": tz_name,
+                        "RETURN_AS_TIMEZONE_AWARE": True,
+                        "TO_TIMEZONE": "UTC",
+                    },
                 )
             except Exception as e:
                 logger.warning(f"Could not parse callback datetime: {e}")

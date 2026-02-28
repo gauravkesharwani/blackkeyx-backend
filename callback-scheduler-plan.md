@@ -20,12 +20,79 @@ When an investor requests a callback during a call, the system creates a `Callba
 
 **Last resort:** Default to `America/New_York`.
 
+### Agent-side changes (blackkeyx-agent)
+
+The voice agent must be updated to capture timezone and pass it to the backend. Three changes in `agent.py`:
+
+#### A. Add `investor_timezone` parameter to `request_callback` tool
+
+Add an `investor_timezone` parameter to the `request_callback` function tool (line 230) so the LLM can pass the investor's timezone when scheduling a callback:
+
+```python
+@function_tool()
+async def request_callback(
+    self,
+    ctx: RunContext,
+    callback_datetime: str,
+    callback_notes: str = "",
+    investor_timezone: str = "",
+) -> str:
+    """
+    Called when the user indicates they're busy and wants a callback at a specific time.
+
+    Args:
+        callback_datetime: The preferred callback date/time in natural language
+                          (e.g., "Tuesday at 2pm", "tomorrow morning", "next week")
+        callback_notes: Optional notes about the callback
+        investor_timezone: The investor's timezone as confirmed during the call
+                          (e.g., "Eastern", "Pacific", "Central", "Mountain").
+                          Ask the investor to confirm their timezone before calling this tool.
+    """
+```
+
+Store `investor_timezone` alongside the other callback fields in `_callback_requests`:
+
+```python
+_callback_requests[job_ctx.room.name] = {
+    "callback_datetime": callback_datetime,
+    "callback_notes": callback_notes,
+    "investor_timezone": investor_timezone,
+}
+```
+
+#### B. Include `investor_timezone` in the session-complete payload
+
+In `send_transcript()` (line 313), pass the timezone when building the payload:
+
+```python
+if callback_info:
+    payload["callback_requested"] = True
+    payload["callback_datetime"] = callback_info["callback_datetime"]
+    payload["callback_notes"] = callback_info.get("callback_notes", "")
+    payload["investor_timezone"] = callback_info.get("investor_timezone", "")
+```
+
+#### C. Update agent instructions to ask for timezone
+
+In the outbound call flow instructions (line 128-131), after the "bad time" branch where the agent asks when to call back, add a step to confirm timezone:
+
+```text
+- If they CONFIRM but say it is a BAD TIME:
+  1. Acknowledge politely (e.g., "I completely understand, I know you're busy")
+  2. Ask when would be a good time to call back
+  3. Confirm their timezone (e.g., "And just to make sure we call at the right time — are you on Eastern time?")
+  4. Once they give a time and timezone, use the request_callback tool with their preferred time and timezone
+```
+
+**Why the agent must ask:** The backend plan relies on `investor_timezone` being passed from the agent callback. Without this prompt change, the LLM will never ask for timezone and the field will always be empty, falling through to phone-number inference every time.
+
 ---
 
 ## Files to Change
 
 | File | Action | Purpose |
 |------|--------|---------|
+| `blackkeyx-agent/agent.py` | Modify | Add `investor_timezone` to `request_callback` tool, payload, and instructions |
 | `app/models/investor.py` | Modify | Add `timezone` field |
 | `alembic/versions/012_add_investor_timezone.py` | Create | Migration for timezone column |
 | `app/utils/__init__.py` | Create | New utils package |

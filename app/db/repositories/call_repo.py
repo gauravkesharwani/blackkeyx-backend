@@ -3,7 +3,7 @@ Call session repository for voice call data access.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Sequence
 
 from sqlalchemy import select, update
@@ -50,7 +50,7 @@ class CallRepository(BaseRepository[CallSession]):
             investor_id=investor_id,
             room_name=room_name,
             status=status,
-            initiated_at=datetime.utcnow(),
+            initiated_at=datetime.now(timezone.utc),
         )
         self.session.add(call)
         await self.session.flush()
@@ -93,7 +93,7 @@ class CallRepository(BaseRepository[CallSession]):
                 transcript=transcript,
                 duration=duration,
                 status="completed",
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
             )
         )
 
@@ -165,6 +165,21 @@ class CallRepository(BaseRepository[CallSession]):
         if investor_id:
             query = query.where(CallbackRequest.investor_id == investor_id)
         query = query.order_by(CallbackRequest.requested_datetime.asc())
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
+    async def get_due_callbacks(
+        self, grace_window_minutes: int = 2
+    ) -> Sequence[CallbackRequest]:
+        """Get pending callbacks whose requested_datetime is due (within grace window)."""
+        cutoff = datetime.now(timezone.utc) + timedelta(minutes=grace_window_minutes)
+        query = (
+            select(CallbackRequest)
+            .where(CallbackRequest.status == "pending")
+            .where(CallbackRequest.requested_datetime.isnot(None))
+            .where(CallbackRequest.requested_datetime <= cutoff)
+            .order_by(CallbackRequest.requested_datetime.asc())
+        )
         result = await self.session.execute(query)
         return result.scalars().all()
 
