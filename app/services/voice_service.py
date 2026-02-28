@@ -2,9 +2,11 @@
 
 import asyncio
 import logging
+import re
 import uuid
 from typing import Any, Optional
 
+import dateparser
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repositories.call_repo import CallRepository
@@ -101,12 +103,31 @@ class VoiceService:
             )
 
             # Parse the datetime using dateparser with timezone awareness
+            # Strip timezone references from the string since we handle
+            # timezone separately via the TIMEZONE setting — leaving them in
+            # can cause dateparser to return None.
+            clean_dt = re.sub(
+                r"\b(pacific|eastern|central|mountain|[PMCE][SD]T)\s*(time(zone)?)?\b",
+                "",
+                callback_datetime,
+                flags=re.IGNORECASE,
+            ).strip()
+            # Normalize "X from now" → "in X" which dateparser handles better
+            clean_dt = re.sub(
+                r"(\d+\s+\w+)\s+from\s+now",
+                r"in \1",
+                clean_dt,
+                flags=re.IGNORECASE,
+            )
+            logger.info(
+                f"Parsing callback datetime: raw={callback_datetime!r}, "
+                f"cleaned={clean_dt!r}, tz={tz_name}"
+            )
+
             parsed_dt = None
             try:
-                import dateparser
-
                 parsed_dt = dateparser.parse(
-                    callback_datetime,
+                    clean_dt,
                     settings={
                         "PREFER_DATES_FROM": "future",
                         "TIMEZONE": tz_name,
@@ -114,6 +135,15 @@ class VoiceService:
                         "TO_TIMEZONE": "UTC",
                     },
                 )
+                # Fallback: try the original string without timezone settings
+                if parsed_dt is None:
+                    parsed_dt = dateparser.parse(
+                        callback_datetime,
+                        settings={"PREFER_DATES_FROM": "future"},
+                    )
+                    logger.info(
+                        f"Fallback parse result: {parsed_dt}"
+                    )
             except Exception as e:
                 logger.warning(f"Could not parse callback datetime: {e}")
 
