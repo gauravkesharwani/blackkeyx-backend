@@ -42,6 +42,7 @@ class SessionCompleteRequest(BaseModel):
     callback_requested: bool = False
     callback_datetime: Optional[str] = None
     callback_notes: Optional[str] = None
+    investor_timezone: Optional[str] = None  # IANA timezone confirmed during call
 
 
 class SessionCompleteResponse(BaseModel):
@@ -100,6 +101,7 @@ async def session_complete(
         callback_requested=request.callback_requested,
         callback_datetime=request.callback_datetime,
         callback_notes=request.callback_notes,
+        investor_timezone=request.investor_timezone,
     )
 
     if not call:

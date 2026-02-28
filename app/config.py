@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     rate_limit_admin_auth: str = "5/minute"
     rate_limit_global: str = "100/minute"
 
+    # Callback Scheduler
+    callback_scheduler_enabled: bool = True
+    callback_poll_interval_seconds: int = 30
+    callback_grace_window_minutes: int = 2
+    callback_max_retries: int = 3
+
     # Application
     debug: bool = False
     cors_origins: List[str] = ["http://localhost:3000"]

@@ -28,3 +28,4 @@ slowapi
 # Utilities
 dateparser
 numpy
+phonenumbers
