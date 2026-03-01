@@ -76,6 +76,48 @@ def determine_qualification_bucket(score: int) -> str:
     return "not_qualified"
 
 
+async def _dispatch_call_background(
+    investor_id,
+    phone_number: str,
+    investor_context: dict,
+) -> None:
+    """Background task to dispatch outbound call. Creates its own DB session."""
+    try:
+        from app.db.session import async_session_factory
+
+        dispatcher = get_livekit_dispatcher()
+
+        room_name = await dispatcher.dispatch_outbound_call(
+            phone_number=phone_number,
+            investor_context=investor_context,
+        )
+
+        async with async_session_factory() as session:
+            call_repo = CallRepository(session)
+            await call_repo.create_call(
+                investor_id=investor_id,
+                room_name=room_name,
+                status="initiated",
+            )
+
+            investor = await session.get(InvestorProfile, investor_id)
+            if investor:
+                investor.stage = "call_dispatched"
+                session.add(StageHistory(
+                    investor_id=investor_id,
+                    from_stage="new_lead",
+                    to_stage="call_dispatched",
+                    changed_by="system",
+                    notes="Auto-dispatched outbound call after lead submission",
+                ))
+
+            await session.commit()
+
+        logger.info(f"Outbound call dispatched for lead {investor_id} in room {room_name}")
+    except Exception as e:
+        logger.warning(f"Failed to dispatch outbound call for lead {investor_id}: {e}")
+
+
 class LeadService:
     """Service for lead submission operations."""
 
@@ -229,41 +271,20 @@ class LeadService:
                 logger.warning(f"Failed to create investor embeddings: {e}")
                 # Don't fail the lead submission if embeddings fail
 
-        # Auto-dispatch outbound call to the new lead
-        try:
-            investor_context = {
-                "investor_id": str(investor.id),
-                "name": investor.name or "there",
-                "capital_available": investor.capacity or investor.capital_available,
-                "timeline": investor.timeline,
-                "investment_preferences": investor.investment_preferences or [],
-            }
-
-            room_name = await self.livekit.dispatch_outbound_call(
+        # Auto-dispatch outbound call in background (don't block the API response)
+        investor_context = {
+            "investor_id": str(investor.id),
+            "name": investor.name or "there",
+            "capital_available": investor.capacity or investor.capital_available,
+            "timeline": investor.timeline,
+            "investment_preferences": investor.investment_preferences or [],
+        }
+        asyncio.create_task(
+            _dispatch_call_background(
+                investor_id=investor.id,
                 phone_number=normalized_phone,
                 investor_context=investor_context,
             )
-
-            await self.call_repo.create_call(
-                investor_id=investor.id,
-                room_name=room_name,
-                status="initiated",
-            )
-
-            # Transition stage to call_dispatched
-            investor.stage = "call_dispatched"
-            dispatch_stage = StageHistory(
-                investor_id=investor.id,
-                from_stage="new_lead",
-                to_stage="call_dispatched",
-                changed_by="system",
-                notes="Auto-dispatched outbound call after lead submission",
-            )
-            self.session.add(dispatch_stage)
-            logger.info(f"Outbound call dispatched for lead {investor.id} in room {room_name}")
-        except Exception as e:
-            logger.warning(f"Failed to dispatch outbound call for lead {investor.id}: {e}")
-            # Don't fail the lead submission if call dispatch fails —
-            # lead stays at "new_lead" stage for manual admin follow-up
+        )
 
         return investor, True
