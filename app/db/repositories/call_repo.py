@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Sequence
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repositories.base import BaseRepository
@@ -43,6 +43,7 @@ class CallRepository(BaseRepository[CallSession]):
         investor_id: uuid.UUID,
         room_name: str,
         status: str = "initiated",
+        retry_count: int = 0,
     ) -> CallSession:
         """Create a new call session record."""
         call = CallSession(
@@ -50,6 +51,7 @@ class CallRepository(BaseRepository[CallSession]):
             investor_id=investor_id,
             room_name=room_name,
             status=status,
+            retry_count=retry_count,
             initiated_at=datetime.now(timezone.utc),
         )
         self.session.add(call)
@@ -199,3 +201,69 @@ class CallRepository(BaseRepository[CallSession]):
             select(CallbackRequest).where(CallbackRequest.id == callback_id)
         )
         return result.scalar_one_or_none()
+
+    # --- Voicemail methods ---
+
+    async def update_voicemail_fields(
+        self,
+        call_id: uuid.UUID,
+        voicemail_detected: bool,
+        voicemail_confidence: float,
+        voicemail_message_left: bool,
+    ) -> None:
+        """Update voicemail detection fields on a call session."""
+        await self.session.execute(
+            update(CallSession)
+            .where(CallSession.id == call_id)
+            .values(
+                voicemail_detected=voicemail_detected,
+                voicemail_confidence=voicemail_confidence,
+                voicemail_message_left=voicemail_message_left,
+            )
+        )
+
+    async def count_voicemail_attempts(self, investor_id: uuid.UUID) -> int:
+        """Count calls with voicemail_detected=True for this investor."""
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(CallSession)
+            .where(CallSession.investor_id == investor_id)
+            .where(CallSession.voicemail_detected.is_(True))
+        )
+        return result.scalar_one()
+
+    async def create_voicemail_retry(
+        self,
+        investor_id: uuid.UUID,
+        original_call_id: uuid.UUID,
+        retry_at: datetime,
+    ) -> CallbackRequest:
+        """Create a CallbackRequest for a voicemail retry."""
+        callback = CallbackRequest(
+            id=uuid.uuid4(),
+            investor_id=investor_id,
+            call_session_id=original_call_id,
+            requested_datetime_raw="voicemail_retry",
+            requested_datetime=retry_at,
+            notes="Auto-scheduled voicemail retry",
+            status="pending",
+        )
+        self.session.add(callback)
+        await self.session.flush()
+        return callback
+
+    async def get_due_voicemail_retries(
+        self, grace_window_minutes: int = 2
+    ) -> Sequence[CallbackRequest]:
+        """Get voicemail retries that are due."""
+        cutoff = datetime.now(timezone.utc) + timedelta(minutes=grace_window_minutes)
+        query = (
+            select(CallbackRequest)
+            .where(CallbackRequest.status == "pending")
+            .where(CallbackRequest.requested_datetime_raw == "voicemail_retry")
+            .where(CallbackRequest.requested_datetime.isnot(None))
+            .where(CallbackRequest.requested_datetime <= cutoff)
+            .order_by(CallbackRequest.requested_datetime.asc())
+        )
+        result = await self.session.execute(query)
+        return result.scalars().all()

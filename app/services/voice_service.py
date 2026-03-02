@@ -4,15 +4,19 @@ import asyncio
 import logging
 import re
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import dateparser
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db.repositories.call_repo import CallRepository
 from app.db.repositories.investor_repo import InvestorRepository
 from app.models.voice import CallSession
 from app.services.livekit_dispatcher import get_livekit_dispatcher
+
+settings = get_settings()
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +57,9 @@ class VoiceService:
         transcript: str,
         duration: Optional[int] = None,
         history: Optional[list[dict[str, Any]]] = None,
+        voicemail_detected: bool = False,
+        voicemail_confidence: float = 0.0,
+        voicemail_message_left: bool = False,
         callback_requested: bool = False,
         callback_datetime: Optional[str] = None,
         callback_notes: Optional[str] = None,
@@ -82,6 +89,46 @@ class VoiceService:
         # Save detailed transcript segments from history
         if history:
             await self._save_transcript_segments(call.id, history)
+
+        # Handle voicemail detection
+        if voicemail_detected:
+            await self.call_repo.update_status(call.id, "voicemail")
+            await self.call_repo.update_voicemail_fields(
+                call.id,
+                voicemail_detected=True,
+                voicemail_confidence=voicemail_confidence,
+                voicemail_message_left=voicemail_message_left,
+            )
+
+            # Check retry count
+            total_attempts = await self.call_repo.count_voicemail_attempts(call.investor_id)
+            if total_attempts < settings.voicemail_max_retries:
+                retry_at = datetime.now(timezone.utc) + timedelta(
+                    minutes=settings.voicemail_retry_delay_minutes
+                )
+                await self.call_repo.create_voicemail_retry(
+                    call.investor_id, call.id, retry_at
+                )
+                await self.investor_repo.update_stage(
+                    investor_id=call.investor_id,
+                    new_stage="voicemail_retry_scheduled",
+                    changed_by="system",
+                    notes=f"Voicemail detected (confidence: {voicemail_confidence:.0%}), retry scheduled",
+                )
+            else:
+                await self.investor_repo.update_stage(
+                    investor_id=call.investor_id,
+                    new_stage="voicemail_max_retries",
+                    changed_by="system",
+                    notes=f"Voicemail max retries ({settings.voicemail_max_retries}) exhausted",
+                )
+
+            await self.session.commit()
+            logger.info(
+                f"Voicemail detected for call {call.id} "
+                f"(confidence={voicemail_confidence}, attempts={total_attempts})"
+            )
+            return call
 
         # Handle callback request
         if callback_requested and callback_datetime:

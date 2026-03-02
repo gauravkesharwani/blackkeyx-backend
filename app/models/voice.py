@@ -4,19 +4,23 @@ Voice/Call models - maps to CallRecord from frontend types/lead.ts
 Frontend type:
 interface CallRecord {
   id: string
-  status: 'initiated' | 'ringing' | 'answered' | 'completed' | 'failed'
+  status: 'initiated' | 'ringing' | 'answered' | 'completed' | 'failed' | 'voicemail'
   duration?: number
   transcript?: string
   recordingUrl?: string
   initiatedAt: string
   completedAt?: string
+  voicemailDetected?: boolean
+  voicemailConfidence?: number
+  voicemailMessageLeft?: boolean
+  retryCount?: number
 }
 """
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -33,12 +37,16 @@ class CallSession(Base, UUIDMixin):
     Maps to CallRecord from frontend:
     interface CallRecord {
       id: string
-      status: 'initiated' | 'ringing' | 'answered' | 'completed' | 'failed'
+      status: 'initiated' | 'ringing' | 'answered' | 'completed' | 'failed' | 'voicemail'
       duration?: number
       transcript?: string
       recordingUrl?: string
       initiatedAt: string
       completedAt?: string
+      voicemailDetected?: boolean
+      voicemailConfidence?: number
+      voicemailMessageLeft?: boolean
+      retryCount?: number
     }
     """
 
@@ -50,7 +58,7 @@ class CallSession(Base, UUIDMixin):
         nullable=False,
     )
 
-    # Call status: 'initiated' | 'ringing' | 'answered' | 'completed' | 'failed'
+    # Call status: 'initiated' | 'ringing' | 'answered' | 'completed' | 'failed' | 'voicemail'
     status: Mapped[str] = mapped_column(String(50), default="initiated", nullable=False)
 
     # Call details
@@ -71,6 +79,12 @@ class CallSession(Base, UUIDMixin):
     completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    # Voicemail detection
+    voicemail_detected: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    voicemail_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    voicemail_message_left: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Extraction status tracking
     extraction_status: Mapped[Optional[str]] = mapped_column(

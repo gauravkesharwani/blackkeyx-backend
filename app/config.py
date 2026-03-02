@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     callback_grace_window_minutes: int = 2
     callback_max_retries: int = 3
 
+    # Voicemail Detection
+    voicemail_detection_enabled: bool = True
+    voicemail_max_retries: int = 3
+    voicemail_retry_delay_minutes: int = 30
+
     # Application
     debug: bool = False
     cors_origins: List[str] = ["http://localhost:3000"]

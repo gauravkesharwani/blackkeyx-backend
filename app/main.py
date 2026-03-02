@@ -29,9 +29,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         scheduler = get_callback_scheduler()
         scheduler_task = asyncio.create_task(scheduler.run())
 
+    # Start voicemail retry scheduler
+    voicemail_task = None
+    if settings.voicemail_detection_enabled:
+        from app.services.voicemail_scheduler import get_voicemail_scheduler
+
+        vm_scheduler = get_voicemail_scheduler()
+        voicemail_task = asyncio.create_task(vm_scheduler.run())
+
     yield
 
     # Shutdown
+    if voicemail_task:
+        from app.services.voicemail_scheduler import get_voicemail_scheduler
+
+        get_voicemail_scheduler().stop()
+        try:
+            await asyncio.wait_for(voicemail_task, timeout=10.0)
+        except asyncio.TimeoutError:
+            voicemail_task.cancel()
+
     if scheduler_task:
         from app.services.callback_scheduler import get_callback_scheduler
 

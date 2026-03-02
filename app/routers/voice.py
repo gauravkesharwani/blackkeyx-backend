@@ -38,6 +38,10 @@ class SessionCompleteRequest(BaseModel):
     transcript: str
     duration: Optional[int] = None
     history: Optional[list[dict[str, Any]]] = None
+    # Voicemail detection fields
+    voicemail_detected: bool = False
+    voicemail_confidence: float = 0.0
+    voicemail_message_left: bool = False
     # Callback request fields
     callback_requested: bool = False
     callback_datetime: Optional[str] = None
@@ -98,6 +102,9 @@ async def session_complete(
         transcript=request.transcript,
         duration=request.duration,
         history=request.history,
+        voicemail_detected=request.voicemail_detected,
+        voicemail_confidence=request.voicemail_confidence,
+        voicemail_message_left=request.voicemail_message_left,
         callback_requested=request.callback_requested,
         callback_datetime=request.callback_datetime,
         callback_notes=request.callback_notes,
