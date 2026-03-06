@@ -319,6 +319,11 @@ def _investor_to_response(lead) -> LeadWithDetailsResponse:
             extractionConfidence=float(call.extraction_confidence) if call.extraction_confidence is not None else None,
             extractionSummary=call.extraction_summary,
             extractedAt=call.extracted_at,
+            direction=call.direction or "outbound",
+            voicemailDetected=call.voicemail_detected,
+            voicemailConfidence=float(call.voicemail_confidence) if call.voicemail_confidence is not None else None,
+            voicemailMessageLeft=call.voicemail_message_left,
+            retryCount=call.retry_count,
         )
         for call in (lead.calls or [])
     ]

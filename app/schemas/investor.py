@@ -92,6 +92,11 @@ class CallRecordResponse(BaseModel):
     extractionConfidence: Optional[float] = None
     extractionSummary: Optional[str] = None
     extractedAt: Optional[datetime] = None
+    direction: str = "outbound"
+    voicemailDetected: bool = False
+    voicemailConfidence: Optional[float] = None
+    voicemailMessageLeft: bool = False
+    retryCount: int = 0
 
     @field_serializer("initiatedAt", "completedAt", "extractedAt")
     def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
