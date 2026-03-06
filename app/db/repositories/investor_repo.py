@@ -44,6 +44,20 @@ class InvestorRepository(BaseRepository[InvestorProfile]):
         )
         return result.scalar_one_or_none()
 
+    async def create_from_inbound(self, phone: str) -> InvestorProfile:
+        """Create a new investor profile from an inbound call."""
+        investor = InvestorProfile(
+            id=uuid.uuid4(),
+            phone=phone,
+            name="Inbound Caller",
+            source="inbound_call",
+            stage="new_lead",
+        )
+        self.session.add(investor)
+        await self.session.flush()
+        await self.session.refresh(investor)
+        return investor
+
     async def get_by_stage(self, stage: str) -> Sequence[InvestorProfile]:
         """Get all investors in a specific pipeline stage."""
         result = await self.session.execute(

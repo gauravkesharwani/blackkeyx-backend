@@ -10,11 +10,13 @@ Provides endpoints for:
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from app.db.session import async_session_factory
+from app.db.repositories.investor_repo import InvestorRepository
 from app.dependencies import get_voice_service
-from app.middleware.auth import require_agent_auth
+from app.middleware.auth import require_agent_auth, verify_agent_signature
 from app.services.voice_service import VoiceService
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,9 @@ class SessionCompleteRequest(BaseModel):
     voicemail_detected: bool = False
     voicemail_confidence: float = 0.0
     voicemail_message_left: bool = False
+    # Inbound call fields
+    caller_phone: Optional[str] = None  # Caller's phone number (E.164), set for inbound calls
+    caller_name: Optional[str] = None   # Caller's name as collected during the call
     # Callback request fields
     callback_requested: bool = False
     callback_datetime: Optional[str] = None
@@ -80,6 +85,54 @@ async def get_call_status(
     )
 
 
+@router.post("/inbound-context")
+async def get_inbound_context(
+    request: Request,
+    x_agent_signature: Optional[str] = None,
+):
+    """
+    Called by the agent at the start of an inbound call to fetch investor context.
+    Returns known profile data so the agent can personalize the conversation.
+    Secured with the same HMAC signature as session-complete.
+    """
+    from fastapi import Header
+    x_agent_signature = request.headers.get("X-Agent-Signature")
+    if not x_agent_signature:
+        raise HTTPException(status_code=401, detail="Missing X-Agent-Signature header.")
+    body = await request.body()
+    if not verify_agent_signature(body, x_agent_signature):
+        raise HTTPException(status_code=401, detail="Invalid agent signature.")
+
+    import json as _json
+    try:
+        data = _json.loads(body)
+        phone = data.get("phone")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body.")
+
+    if not phone:
+        raise HTTPException(status_code=400, detail="phone is required.")
+
+    async with async_session_factory() as session:
+        investor_repo = InvestorRepository(session)
+        investor = await investor_repo.get_by_phone(phone)
+
+    if not investor:
+        return {"found": False}
+
+    return {
+        "found": True,
+        "name": investor.name or "",
+        "stage": investor.stage,
+        "capital_available": investor.capital_available,
+        "timeline": investor.timeline,
+        "investment_preferences": list(investor.investment_preferences or []),
+        "risk_tolerance": investor.risk_tolerance,
+        "qualification_bucket": investor.qualification_bucket,
+        "investment_thesis": investor.investment_thesis,
+    }
+
+
 @router.post("/session-complete", response_model=SessionCompleteResponse)
 async def session_complete(
     request: SessionCompleteRequest,
@@ -102,6 +155,8 @@ async def session_complete(
         transcript=request.transcript,
         duration=request.duration,
         history=request.history,
+        caller_phone=request.caller_phone,
+        caller_name=request.caller_name,
         voicemail_detected=request.voicemail_detected,
         voicemail_confidence=request.voicemail_confidence,
         voicemail_message_left=request.voicemail_message_left,

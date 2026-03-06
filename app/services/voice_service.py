@@ -57,6 +57,8 @@ class VoiceService:
         transcript: str,
         duration: Optional[int] = None,
         history: Optional[list[dict[str, Any]]] = None,
+        caller_phone: Optional[str] = None,
+        caller_name: Optional[str] = None,
         voicemail_detected: bool = False,
         voicemail_confidence: float = 0.0,
         voicemail_message_left: bool = False,
@@ -83,12 +85,66 @@ class VoiceService:
         )
 
         if not call:
-            logger.warning(f"Call not found for room: {room_name}")
-            return None
+            # Fallback: agent passes caller_phone for inbound calls — create session now
+            if room_name.startswith("inbound-"):
+                logger.warning(
+                    f"No CallSession found for inbound room {room_name}, "
+                    f"creating one retroactively"
+                )
+                investor_id = None
+                if caller_phone:
+                    investor = await self.investor_repo.get_by_phone(caller_phone)
+                    if not investor:
+                        investor = await self.investor_repo.create_from_inbound(caller_phone)
+                        logger.info(f"Created new lead from inbound call: {investor.id} ({caller_phone})")
+                    investor_id = investor.id
+                await self.call_repo.create_inbound_call(
+                    room_name=room_name,
+                    caller_phone=caller_phone or "unknown",
+                    investor_id=investor_id,
+                )
+                call = await self.call_repo.save_transcript(
+                    room_name=room_name,
+                    transcript=transcript,
+                    duration=duration or 0,
+                )
+
+            if not call:
+                logger.warning(f"Call not found for room: {room_name}")
+                return None
 
         # Save detailed transcript segments from history
         if history:
             await self._save_transcript_segments(call.id, history)
+
+        # If investor not linked (webhook stored "unknown"), fix it now using agent-provided phone
+        if not call.investor_id and caller_phone and room_name.startswith("inbound-"):
+            logger.info(f"Linking investor to call {call.id} using agent-provided phone {caller_phone}")
+            investor = await self.investor_repo.get_by_phone(caller_phone)
+            if not investor:
+                investor = await self.investor_repo.create_from_inbound(caller_phone)
+                logger.info(f"Created new lead from inbound call (session-complete): {investor.id} ({caller_phone})")
+            # Patch the call record with correct phone and investor
+            await self.call_repo.update_inbound_caller(
+                call_id=call.id,
+                caller_phone=caller_phone,
+                investor_id=investor.id,
+            )
+            call.investor_id = investor.id
+            await self.session.flush()
+
+        if not call.investor_id:
+            logger.warning(f"Inbound call with no investor link completed: {call.id}")
+            await self.session.commit()
+            return call
+
+        # Update investor name if collected during inbound call
+        if caller_name and room_name.startswith("inbound-"):
+            investor = await self.investor_repo.get(call.investor_id)
+            if investor and (not investor.name or investor.name == "Inbound Caller"):
+                investor.name = caller_name
+                await self.session.flush()
+                logger.info(f"Updated inbound caller name to '{caller_name}' for investor {call.investor_id}")
 
         # Handle voicemail detection
         if voicemail_detected:
@@ -104,7 +160,7 @@ class VoiceService:
             total_attempts = await self.call_repo.count_voicemail_attempts(call.investor_id)
             if total_attempts < settings.voicemail_max_retries:
                 retry_at = datetime.now(timezone.utc) + timedelta(
-                    minutes=settings.voicemail_retry_delay_minutes
+                    days=settings.voicemail_retry_delay_days
                 )
                 await self.call_repo.create_voicemail_retry(
                     call.investor_id, call.id, retry_at

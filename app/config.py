@@ -52,8 +52,8 @@ class Settings(BaseSettings):
 
     # Voicemail Detection
     voicemail_detection_enabled: bool = True
-    voicemail_max_retries: int = 3
-    voicemail_retry_delay_minutes: int = 30
+    voicemail_max_retries: int = 1
+    voicemail_retry_delay_days: int = 3
 
     # Application
     debug: bool = False

@@ -25,7 +25,7 @@ class VoicemailScheduler:
         logger.info(
             "Voicemail retry scheduler started "
             f"(poll={settings.callback_poll_interval_seconds}s, "
-            f"retry_delay={settings.voicemail_retry_delay_minutes}min, "
+            f"retry_delay={settings.voicemail_retry_delay_days}d, "
             f"max_retries={settings.voicemail_max_retries})"
         )
 

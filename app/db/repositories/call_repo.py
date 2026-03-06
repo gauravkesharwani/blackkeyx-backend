@@ -50,6 +50,7 @@ class CallRepository(BaseRepository[CallSession]):
             id=uuid.uuid4(),
             investor_id=investor_id,
             room_name=room_name,
+            direction="outbound",
             status=status,
             retry_count=retry_count,
             initiated_at=datetime.now(timezone.utc),
@@ -58,6 +59,40 @@ class CallRepository(BaseRepository[CallSession]):
         await self.session.flush()
         await self.session.refresh(call)
         return call
+
+    async def create_inbound_call(
+        self,
+        room_name: str,
+        caller_phone: str,
+        investor_id: Optional[uuid.UUID] = None,
+    ) -> CallSession:
+        """Create a call session record for an inbound call."""
+        call = CallSession(
+            id=uuid.uuid4(),
+            investor_id=investor_id,
+            room_name=room_name,
+            caller_phone=caller_phone,
+            direction="inbound",
+            status="initiated",
+            initiated_at=datetime.now(timezone.utc),
+        )
+        self.session.add(call)
+        await self.session.flush()
+        await self.session.refresh(call)
+        return call
+
+    async def update_inbound_caller(
+        self,
+        call_id: uuid.UUID,
+        caller_phone: str,
+        investor_id: uuid.UUID,
+    ) -> None:
+        """Patch caller_phone and investor_id on an inbound call that was stored with 'unknown'."""
+        await self.session.execute(
+            update(CallSession)
+            .where(CallSession.id == call_id)
+            .values(caller_phone=caller_phone, investor_id=investor_id)
+        )
 
     async def update_status(
         self,

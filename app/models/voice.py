@@ -52,11 +52,19 @@ class CallSession(Base, UUIDMixin):
 
     __tablename__ = "call_sessions"
 
-    investor_id: Mapped[uuid.UUID] = mapped_column(
+    investor_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("investor_profiles.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,  # Nullable for unknown inbound callers
     )
+
+    # Call direction: 'inbound' | 'outbound'
+    direction: Mapped[str] = mapped_column(
+        String(20), default="outbound", server_default="outbound", nullable=False
+    )
+
+    # Caller phone (for inbound calls — the phone number that called in)
+    caller_phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
     # Call status: 'initiated' | 'ringing' | 'answered' | 'completed' | 'failed' | 'voicemail'
     status: Mapped[str] = mapped_column(String(50), default="initiated", nullable=False)
@@ -99,7 +107,7 @@ class CallSession(Base, UUIDMixin):
     )
 
     # Relationship
-    investor: Mapped["InvestorProfile"] = relationship(back_populates="calls")
+    investor: Mapped[Optional["InvestorProfile"]] = relationship(back_populates="calls")
 
 
 class CallbackRequest(Base, UUIDMixin):
