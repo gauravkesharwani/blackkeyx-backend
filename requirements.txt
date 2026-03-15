@@ -29,3 +29,11 @@ slowapi
 dateparser
 numpy
 phonenumbers
+
+# Investor Portal
+PyJWT
+google-auth
+google-auth-oauthlib
+pdfplumber
+python-docx
+stripe

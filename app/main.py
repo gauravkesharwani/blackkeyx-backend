@@ -88,7 +88,7 @@ async def health_check() -> dict:
 
 
 # Import and include routers
-from app.routers import admin, leads, matching, properties, voice, webhook  # noqa: E402
+from app.routers import admin, investor_portal, leads, matching, properties, voice, webhook  # noqa: E402
 
 app.include_router(leads.router, prefix="/api/v1", tags=["leads"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
@@ -96,3 +96,4 @@ app.include_router(properties.router, prefix="/api/v1/properties", tags=["proper
 app.include_router(voice.router, tags=["voice"])
 app.include_router(matching.router, tags=["matching"])
 app.include_router(webhook.router, tags=["voice-webhook"])
+app.include_router(investor_portal.router, prefix="/api/v1/investor", tags=["investor-portal"])
