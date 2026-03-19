@@ -55,6 +55,19 @@ class Settings(BaseSettings):
     voicemail_max_retries: int = 1
     voicemail_retry_delay_days: int = 3
 
+    # Investor Portal — Google OAuth + JWT
+    google_client_id: str = ""
+    jwt_secret_key: str = "changeme-jwt-secret"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 60
+    jwt_refresh_token_expire_days: int = 30
+
+    # Investor Portal — Stripe
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_pro_price_id: str = ""
+    free_plan_deal_limit: int = 3
+
     # Application
     debug: bool = False
     cors_origins: List[str] = ["http://localhost:3000"]

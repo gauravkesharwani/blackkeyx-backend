@@ -10,6 +10,13 @@ from app.models.market import MarketAnalysis
 from app.models.matching import DealMatch
 from app.models.property import Deal, MajorTenant, Property, PropertyDocument
 from app.models.voice import CallSession, CallTranscript
+from app.models.investor_portal import (
+    InvestorUser,
+    InvestorSubscription,
+    InvestorDeal,
+    DealChunk,
+    InvestorChatSession,
+)
 
 # Asset type models
 from app.models.asset_types import (
@@ -56,6 +63,11 @@ __all__ = [
     "DealMatch",
     "CallSession",
     "CallTranscript",
+    "InvestorUser",
+    "InvestorSubscription",
+    "InvestorDeal",
+    "DealChunk",
+    "InvestorChatSession",
     "IndustrialDetails",
     "IndustrialTenant",
     "MultifamilyDetails",
