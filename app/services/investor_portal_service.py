@@ -309,7 +309,7 @@ class InvestorPortalService:
 
         portal = stripe.billing_portal.Session.create(
             customer=sub.stripe_customer_id,
-            return_url=f"{settings.cors_origins[0]}/investor/billing",
+            return_url=f"{settings.cors_origins[0]}/investor/dashboard",
         )
         return portal.url
 
