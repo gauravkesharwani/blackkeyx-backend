@@ -294,7 +294,7 @@ class InvestorPortalService:
             mode="subscription",
             line_items=[{"price": settings.stripe_pro_price_id, "quantity": 1}],
             success_url=f"{settings.cors_origins[0]}/investor/dashboard?upgraded=true",
-            cancel_url=f"{settings.cors_origins[0]}/investor/billing",
+            cancel_url=f"{settings.cors_origins[0]}/investor/dashboard",
         )
         return checkout.url
 
