@@ -24,6 +24,11 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = ""
+    openai_model_deal_extraction: str = "gpt-5.4"
+    openai_model_chatbot: str = "gpt-5.4-mini"
+    openai_model_insights: str = "gpt-5.4-mini"
+    openai_model_metadata: str = "gpt-4o-mini"
+    openai_model_embedding: str = "text-embedding-3-small"
 
     # LiveKit
     livekit_url: str = ""

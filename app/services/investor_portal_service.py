@@ -97,7 +97,7 @@ async def _extract_title_and_description(text_content: str, filename: str) -> tu
     try:
         client = AsyncOpenAI(api_key=settings.openai_api_key)
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=settings.openai_model_metadata,
             messages=[
                 {
                     "role": "system",
@@ -570,7 +570,7 @@ class InvestorPortalService:
         # Embed the question
         q_emb_response = await client.embeddings.create(
             input=question,
-            model="text-embedding-3-small",
+            model=settings.openai_model_embedding,
         )
         q_embedding = q_emb_response.data[0].embedding
         q_embedding_str = "[" + ",".join(str(x) for x in q_embedding) + "]"
@@ -617,13 +617,12 @@ class InvestorPortalService:
                 + [messages[1]]
             )
 
-        # Stream GPT-4o response
         full_response = ""
         stream = await client.chat.completions.create(
-            model="gpt-4o",
+            model=settings.openai_model_chatbot,
             messages=messages,
             stream=True,
-            max_tokens=1024,
+            max_completion_tokens=1024,
             temperature=0.2,
         )
 
@@ -696,7 +695,7 @@ async def process_deal_document(
                 batch = chunks[batch_start: batch_start + BATCH_SIZE]
                 response = await client.embeddings.create(
                     input=batch,
-                    model="text-embedding-3-small",
+                    model=settings.openai_model_embedding,
                 )
                 for i, emb_data in enumerate(response.data):
                     chunk_obj = DealChunk(

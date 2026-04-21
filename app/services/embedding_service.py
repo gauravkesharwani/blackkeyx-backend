@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # Embedding model configuration
-EMBEDDING_MODEL = "text-embedding-3-small"
+EMBEDDING_MODEL = settings.openai_model_embedding
 EMBEDDING_DIMENSIONS = 1536
 
 # Section types for property embeddings

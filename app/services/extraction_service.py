@@ -68,7 +68,7 @@ class ExtractionService:
             logger.info(f"Extracting {deal_type} from PDF URL: {pdf_url[:50]}...")
 
             response = await self.client.responses.parse(
-                model="gpt-4o",
+                model=settings.openai_model_deal_extraction,
                 input=[
                     {"role": "system", "content": prompt},
                     {
@@ -112,7 +112,7 @@ class ExtractionService:
         """
         try:
             completion = await self.client.beta.chat.completions.parse(
-                model="gpt-4o",
+                model=settings.openai_model_deal_extraction,
                 messages=[
                     {"role": "system", "content": SIMPLE_EXTRACTION_PROMPT},
                     {"role": "user", "content": document_text},
@@ -164,7 +164,7 @@ class ExtractionService:
             logger.info(f"Extracting {deal_type} from PDF bytes: {filename} ({len(pdf_content)} bytes)")
 
             response = await self.client.responses.parse(
-                model="gpt-5.2",
+                model=settings.openai_model_deal_extraction,
                 input=[
                     {"role": "system", "content": prompt},
                     {

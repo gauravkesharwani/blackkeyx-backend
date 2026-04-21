@@ -94,7 +94,7 @@ class InsightExtractionService:
         """Extract structured insights from a call transcript using LLM."""
         try:
             response = await self.client.responses.parse(
-                model="gpt-5.2",
+                model=settings.openai_model_insights,
                 input=[
                     {"role": "system", "content": EXTRACTION_PROMPT},
                     {
